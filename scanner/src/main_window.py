@@ -1,25 +1,38 @@
-"""Main scanner window — neumorphic kiosk UI with NFC + QR scanning."""
+"""Main scanner window — neumorphic kiosk UI with NFC + QR scanning.
+
+Three zones:
+  1. Top bar  (64 px)  — title, status pills, settings button
+  2. Main card (flex)   — stacked idle / success / error states
+  3. Bottom tray (240px)— webcam preview + event log
+"""
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
 
 from PyQt6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
+    QRectF,
     QSize,
     Qt,
     QTimer,
 )
-from PyQt6.QtGui import QColor, QFont, QImage, QMouseEvent, QPixmap
+from PyQt6.QtGui import (
+    QColor,
+    QFont,
+    QImage,
+    QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPixmap,
+)
 from PyQt6.QtWidgets import (
     QFrame,
-    QGraphicsDropShadowEffect,
-    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -32,12 +45,104 @@ from .nfc_reader import NfcReaderThread
 from .offline import OfflineManager
 from .qr_reader import QrReaderThread
 from .settings_dialog import SettingsDialog
-from .shadows import apply_raised_shadow
+from .shadows import (
+    NEO_BASE,
+    NEO_DISTANCE,
+    NEO_RADIUS,
+    paint_neo_inset,
+    paint_neo_raised,
+)
 from .widgets import EventLogWidget, NeoButton, NeoCard, StatusPill
 
 
+# ───────────────────────────────────────────────────────────────────────
+# Painted top bar
+# ───────────────────────────────────────────────────────────────────────
+
+class _TopBar(QWidget):
+    """Top bar with a subtle bottom shadow edge, painted neumorphically."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(64)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(0, 0, self.width(), self.height() + 12)
+        paint_neo_raised(p, rect, radius=0, distance=4, intensity=0.06)
+        p.end()
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Painted webcam frame (inset)
+# ───────────────────────────────────────────────────────────────────────
+
+class _WebcamFrame(QWidget):
+    """Inset neumorphic frame that displays the webcam feed."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._pixmap: QPixmap | None = None
+        self.setFixedSize(300, 200)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def set_pixmap(self, pm: QPixmap) -> None:
+        self._pixmap = pm
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        p = QPainter(self)
+        margin = 6
+        rect = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
+        paint_neo_inset(p, rect, radius=14, distance=4)
+
+        if self._pixmap and not self._pixmap.isNull():
+            inner = rect.adjusted(5, 5, -5, -5)
+            scaled = self._pixmap.scaled(
+                int(inner.width()), int(inner.height()),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = inner.left() + (inner.width() - scaled.width()) / 2
+            y = inner.top() + (inner.height() - scaled.height()) / 2
+            p.drawPixmap(int(x), int(y), scaled)
+        else:
+            p.setPen(QColor(styles.TEXT_SECONDARY))
+            font = QFont("Segoe UI", 10)
+            p.setFont(font)
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "No webcam feed")
+
+        p.end()
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Bottom tray
+# ───────────────────────────────────────────────────────────────────────
+
+class _BottomTray(QWidget):
+    """Bottom tray with a subtle top shadow edge."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(240)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(0, -12, self.width(), self.height() + 12)
+        paint_neo_raised(p, rect, radius=0, distance=4, intensity=0.06)
+        p.end()
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Main Window
+# ───────────────────────────────────────────────────────────────────────
+
 class MainWindow(QWidget):
-    """Frameless neumorphic scanner window with three zones."""
+    """Frameless neumorphic scanner kiosk window."""
 
     def __init__(self, config: ScannerConfig) -> None:
         super().__init__()
@@ -50,13 +155,13 @@ class MainWindow(QWidget):
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setStyleSheet(styles.GLOBAL_STYLE)
-        self.setMinimumSize(900, 640)
+        self.setMinimumSize(960, 680)
 
         self._build_ui()
         self._start_threads()
         self._start_timers()
 
-    # ------------------------------------------------------------------ UI
+    # ================================================================= UI
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -64,121 +169,155 @@ class MainWindow(QWidget):
         root.setSpacing(0)
 
         root.addWidget(self._build_top_bar())
-        root.addWidget(self._build_main_card(), stretch=1)
+        root.addWidget(self._build_main_area(), stretch=1)
         root.addWidget(self._build_bottom_tray())
 
-    # -- Top bar --
+    # -- Top bar --------------------------------------------------------
 
-    def _build_top_bar(self) -> QFrame:
-        bar = QFrame()
-        bar.setStyleSheet(styles.TOP_BAR_STYLE)
+    def _build_top_bar(self) -> QWidget:
+        bar = _TopBar()
         lay = QHBoxLayout(bar)
-        lay.setContentsMargins(16, 0, 16, 0)
+        lay.setContentsMargins(24, 0, 24, 0)
+        lay.setSpacing(12)
 
+        # Title
         title = QLabel(f"Meridian  \u2022  {self.config.scanner_id}")
-        title.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {styles.TEXT_PRIMARY};")
+        title.setStyleSheet(styles.FONT_TITLE)
         lay.addWidget(title)
 
         lay.addStretch()
 
+        # Status pills
         self.pill_api = StatusPill("API")
         self.pill_nfc = StatusPill("NFC")
         self.pill_queue = StatusPill("Queue: 0")
         for pill in (self.pill_api, self.pill_nfc, self.pill_queue):
             lay.addWidget(pill)
 
-        settings_btn = NeoButton("\u2699")
-        settings_btn.setFixedSize(40, 40)
+        lay.addSpacing(8)
+
+        # Settings button
+        settings_btn = NeoButton(icon_text="\u2699\uFE0F")
+        settings_btn.setFixedSize(48, 48)
         settings_btn.clicked.connect(self._open_settings)
         lay.addWidget(settings_btn)
 
         return bar
 
-    # -- Main result card --
+    # -- Main area (stacked card) ----------------------------------------
 
-    def _build_main_card(self) -> QWidget:
+    def _build_main_area(self) -> QWidget:
         container = QWidget()
+        container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         lay = QVBoxLayout(container)
-        lay.setContentsMargins(32, 16, 32, 16)
+        lay.setContentsMargins(40, 20, 40, 20)
 
         self._stack = QStackedWidget()
+        self._stack.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         lay.addWidget(self._stack)
 
-        # Page 0: idle
+        # -- Page 0: idle -----------------------------------------------
         idle_card = NeoCard()
-        idle_lay = QVBoxLayout(idle_card)
+        idle_inner = QVBoxLayout(idle_card)
+        idle_inner.setContentsMargins(40, 40, 40, 40)
+        idle_inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # NFC icon (large)
+        nfc_icon = QLabel("\U0001F4F3")
+        nfc_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        nfc_icon.setStyleSheet("font-size: 56px; background: transparent;")
+        idle_inner.addWidget(nfc_icon)
+
+        idle_inner.addSpacing(12)
+
         self._idle_label = QLabel("Ready to Scan")
         self._idle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._idle_label.setStyleSheet(
-            f"font-size: 32px; font-weight: 300; color: {styles.TEXT_SECONDARY};"
-        )
-        idle_lay.addWidget(self._idle_label)
-        self._idle_sub = QLabel("Tap NFC or show QR code")
+        self._idle_label.setStyleSheet(styles.FONT_HEADING)
+        idle_inner.addWidget(self._idle_label)
+
+        self._idle_sub = QLabel("Tap your NFC pass or show a QR code")
         self._idle_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._idle_sub.setStyleSheet(f"font-size: 16px; color: {styles.TEXT_SECONDARY};")
-        idle_lay.addWidget(self._idle_sub)
+        self._idle_sub.setStyleSheet(styles.FONT_SUBHEAD)
+        idle_inner.addWidget(self._idle_sub)
 
         # Breathing shadow animation
-        self._idle_shadow = apply_raised_shadow(idle_card)
-        self._breath_anim = QPropertyAnimation(self._idle_shadow, b"blurRadius", self)
+        self._breath_anim = QPropertyAnimation(idle_card, b"shadow_spread", self)
         self._breath_anim.setDuration(3000)
-        self._breath_anim.setStartValue(8)
-        self._breath_anim.setEndValue(18)
+        self._breath_anim.setStartValue(6.0)
+        self._breath_anim.setEndValue(14.0)
         self._breath_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
         self._breath_anim.setLoopCount(-1)
         self._breath_anim.start()
 
         self._stack.addWidget(idle_card)
 
-        # Page 1: success
+        # -- Page 1: success --------------------------------------------
         success_card = NeoCard()
-        success_lay = QVBoxLayout(success_card)
+        success_inner = QVBoxLayout(success_card)
+        success_inner.setContentsMargins(40, 40, 40, 40)
+        success_inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        success_icon = QLabel("\u2705")
+        success_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        success_icon.setStyleSheet("font-size: 52px; background: transparent;")
+        success_inner.addWidget(success_icon)
+
+        success_inner.addSpacing(8)
+
         self._success_name = QLabel("")
         self._success_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._success_name.setStyleSheet(f"font-size: 36px; font-weight: 700; color: {styles.ACCENT_GREEN};")
-        success_lay.addWidget(self._success_name)
+        self._success_name.setStyleSheet(f"{styles.FONT_LARGE} color: {styles.ACCENT_GREEN};")
+        success_inner.addWidget(self._success_name)
+
         self._success_detail = QLabel("")
         self._success_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._success_detail.setStyleSheet(f"font-size: 18px; color: {styles.TEXT_PRIMARY};")
-        success_lay.addWidget(self._success_detail)
+        self._success_detail.setStyleSheet(styles.FONT_SUBHEAD)
+        success_inner.addWidget(self._success_detail)
+
         self._stack.addWidget(success_card)
 
-        # Page 2: error
+        # -- Page 2: error ----------------------------------------------
         error_card = NeoCard()
-        error_lay = QVBoxLayout(error_card)
+        error_inner = QVBoxLayout(error_card)
+        error_inner.setContentsMargins(40, 40, 40, 40)
+        error_inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        error_icon = QLabel("\u274C")
+        error_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        error_icon.setStyleSheet("font-size: 52px; background: transparent;")
+        error_inner.addWidget(error_icon)
+
+        error_inner.addSpacing(8)
+
         self._error_msg = QLabel("")
         self._error_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._error_msg.setWordWrap(True)
-        self._error_msg.setStyleSheet(f"font-size: 22px; font-weight: 600; color: {styles.ACCENT_RED};")
-        error_lay.addWidget(self._error_msg)
+        self._error_msg.setStyleSheet(f"font-size: 20px; font-weight: 600; color: {styles.ACCENT_RED}; background: transparent;")
+        error_inner.addWidget(self._error_msg)
+
         self._stack.addWidget(error_card)
 
         return container
 
-    # -- Bottom tray --
+    # -- Bottom tray ----------------------------------------------------
 
-    def _build_bottom_tray(self) -> QFrame:
-        tray = QFrame()
-        tray.setStyleSheet(styles.BOTTOM_TRAY_STYLE)
+    def _build_bottom_tray(self) -> QWidget:
+        tray = _BottomTray()
         lay = QHBoxLayout(tray)
-        lay.setContentsMargins(16, 8, 16, 8)
+        lay.setContentsMargins(24, 16, 24, 16)
+        lay.setSpacing(16)
 
-        # Left: webcam preview
-        self._webcam_label = QLabel("No webcam feed")
-        self._webcam_label.setFixedSize(320, 200)
-        self._webcam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._webcam_label.setStyleSheet(
-            f"background: #D0D5DC; border-radius: 12px; color: {styles.TEXT_SECONDARY};"
-        )
-        lay.addWidget(self._webcam_label)
+        # Webcam preview (inset frame)
+        self._webcam_frame = _WebcamFrame()
+        lay.addWidget(self._webcam_frame)
 
-        # Right: event log
+        # Event log
         self._event_log = EventLogWidget()
         lay.addWidget(self._event_log, stretch=1)
 
         return tray
 
-    # ----------------------------------------------------------------- Threads
+    # ================================================================= Threads
 
     def _start_threads(self) -> None:
         self._nfc_thread = NfcReaderThread()
@@ -194,29 +333,25 @@ class MainWindow(QWidget):
         self._qr_thread.qr_detected.connect(self._on_qr_scan)
         self._qr_thread.start()
 
-    # ----------------------------------------------------------------- Timers
+    # ================================================================= Timers
 
     def _start_timers(self) -> None:
-        # Heartbeat every 30s
         self._heartbeat_timer = QTimer(self)
         self._heartbeat_timer.timeout.connect(self._do_heartbeat)
         self._heartbeat_timer.start(30_000)
-        # Initial heartbeat
         QTimer.singleShot(1000, self._do_heartbeat)
 
-        # Queue flush every 60s
         self._flush_timer = QTimer(self)
         self._flush_timer.timeout.connect(self._flush_offline_queue)
         self._flush_timer.start(60_000)
 
-    # ----------------------------------------------------------------- Scan handling
+    # ================================================================= Scan handling
 
     def _parse_uri(self, uri: str) -> dict:
-        """Parse frcattend:// URI into components."""
         parsed = urlparse(uri)
         params = parse_qs(parsed.query)
         return {
-            "action": parsed.netloc,  # "checkin" or "totp"
+            "action": parsed.netloc,
             "serial": params.get("serial", [""])[0],
             "payload": params.get("payload", [""])[0],
             "code": params.get("code", [""])[0],
@@ -224,77 +359,54 @@ class MainWindow(QWidget):
 
     def _on_nfc_scan(self, uri: str) -> None:
         parts = self._parse_uri(uri)
-        self._do_scan(
-            serial=parts["serial"],
-            method="nfc",
-            nfc_payload=uri,
-            totp_code=None,
-            selfie_b64=None,
-        )
+        self._do_scan(serial=parts["serial"], method="nfc",
+                       nfc_payload=uri, totp_code=None, selfie_b64=None)
 
     def _on_qr_scan(self, uri: str, selfie_b64: str) -> None:
         parts = self._parse_uri(uri)
-        self._do_scan(
-            serial=parts["serial"],
-            method="qr",
-            nfc_payload=None,
-            totp_code=parts["code"],
-            selfie_b64=selfie_b64 or None,
-        )
+        self._do_scan(serial=parts["serial"], method="qr",
+                       nfc_payload=None, totp_code=parts["code"],
+                       selfie_b64=selfie_b64 or None)
 
-    def _do_scan(
-        self,
-        serial: str,
-        method: str,
-        nfc_payload: str | None,
-        totp_code: str | None,
-        selfie_b64: str | None,
-    ) -> None:
-        """Attempt check-in; if already checked in, try check-out."""
+    def _do_scan(self, serial, method, nfc_payload, totp_code, selfie_b64) -> None:
         try:
             result = self.api.checkin(serial, nfc_payload, totp_code, method, selfie_b64)
             name = result.get("member_name", "Member")
             self._show_success(name, "Checked In")
-            self._event_log.add_event(f"\u2714 {name} checked in", success=True)
+            self._event_log.add_event(f"\u2714  {name} checked in", success=True)
         except Exception as checkin_err:
-            # If 409 (already checked in), try checkout
             err_text = str(checkin_err)
             if "409" in err_text:
                 try:
                     result = self.api.checkout(serial, nfc_payload, totp_code, method, selfie_b64)
                     name = result.get("member_name", "Member")
                     dur = result.get("duration_minutes", 0)
-                    self._show_success(name, f"Checked Out \u2022 {dur} min")
-                    self._event_log.add_event(f"\u2714 {name} out ({dur}m)", success=True)
+                    self._show_success(name, f"Checked Out  \u2022  {dur} min")
+                    self._event_log.add_event(f"\u2714  {name} out ({dur}m)", success=True)
                 except Exception as checkout_err:
                     self._handle_scan_error(checkout_err, serial, method, nfc_payload, totp_code, selfie_b64, "checkout")
             else:
                 self._handle_scan_error(checkin_err, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
 
-        # Resume scanning after display period
         QTimer.singleShot(4000, self._return_to_idle)
 
     def _handle_scan_error(self, err, serial, method, nfc_payload, totp_code, selfie_b64, action) -> None:
         err_text = str(err)
         if self._online:
             self._show_error(f"Scan failed: {err_text[:80]}")
-            self._event_log.add_event(f"\u2718 Error: {err_text[:50]}", success=False)
+            self._event_log.add_event(f"\u2718  Error: {err_text[:50]}", success=False)
         else:
-            # Queue for offline processing
             self.offline.queue_event({
-                "serial": serial,
-                "nfc_payload": nfc_payload,
-                "totp_code": totp_code,
-                "method": method,
-                "selfie_base64": selfie_b64,
-                "action": action,
+                "serial": serial, "nfc_payload": nfc_payload,
+                "totp_code": totp_code, "method": method,
+                "selfie_base64": selfie_b64, "action": action,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
-            self._show_error("Offline \u2022 Scan queued")
-            self._event_log.add_event(f"\u23F3 Queued offline scan", success=False)
+            self._show_error("Offline  \u2022  Scan queued")
+            self._event_log.add_event("\u23F3  Queued offline scan", success=False)
             self._update_queue_pill()
 
-    # ----------------------------------------------------------------- Display states
+    # ================================================================= Display states
 
     def _show_success(self, name: str, detail: str) -> None:
         self._success_name.setText(name)
@@ -309,17 +421,12 @@ class MainWindow(QWidget):
         self._stack.setCurrentIndex(0)
         self._qr_thread.resume()
 
-    # ----------------------------------------------------------------- Webcam preview
+    # ================================================================= Webcam
 
     def _on_frame(self, qimg: QImage) -> None:
-        pix = QPixmap.fromImage(qimg).scaled(
-            self._webcam_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._webcam_label.setPixmap(pix)
+        self._webcam_frame.set_pixmap(QPixmap.fromImage(qimg))
 
-    # ----------------------------------------------------------------- Status
+    # ================================================================= Status
 
     def _on_nfc_status(self, connected: bool) -> None:
         if connected:
@@ -359,7 +466,7 @@ class MainWindow(QWidget):
             self.offline.mark_synced(ids)
             self._update_queue_pill()
             processed = result.get("processed", 0)
-            self._event_log.add_event(f"\u2191 Synced {processed} offline events", success=True)
+            self._event_log.add_event(f"\u2191  Synced {processed} offline events", success=True)
         except Exception:
             pass
 
@@ -370,12 +477,11 @@ class MainWindow(QWidget):
         else:
             self.pill_queue.set_active("Queue: 0")
 
-    # ----------------------------------------------------------------- Settings
+    # ================================================================= Settings
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.config, self.api, self)
         if dlg.exec():
-            # Restart threads with new config
             self._nfc_thread.stop()
             self._qr_thread.stop()
             self.api.close()
@@ -383,10 +489,10 @@ class MainWindow(QWidget):
             self.offline = OfflineManager(self.config.offline_cache_path, self.config.api_key or "dev")
             self._start_threads()
 
-    # ----------------------------------------------------------------- Window drag
+    # ================================================================= Window drag
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 60:
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 64:
             self._drag_pos = event.globalPosition().toPoint()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -398,7 +504,7 @@ class MainWindow(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._drag_pos = None
 
-    # ----------------------------------------------------------------- Cleanup
+    # ================================================================= Cleanup
 
     def closeEvent(self, event) -> None:
         self._nfc_thread.stop()

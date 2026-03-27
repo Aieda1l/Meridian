@@ -1,124 +1,65 @@
-"""Neumorphic QSS stylesheet constants for the scanner UI."""
+"""Neumorphic palette and minimal QSS constants.
 
-# Palette
-SURFACE = "#E0E5EC"
-LIGHT_SHADOW = "#FFFFFF"
-DARK_SHADOW = "#A3B1C6"
-ACCENT_BLUE = "#5B8DEF"
-ACCENT_GREEN = "#6DB88E"
-ACCENT_RED = "#E06C6C"
-TEXT_PRIMARY = "#3A4A5C"
-TEXT_SECONDARY = "#7B8CA3"
+Heavy lifting (shadows, depth) is handled by QPainter in shadows.py
+and the custom widgets.  QSS here is only for typography, colors, and
+basic element resets — never for shadows or borders that fake depth.
+"""
 
+# ── Palette ────────────────────────────────────────────────────────────
+SURFACE        = "#E0E5EC"
+SURFACE_DARK   = "#D1D9E6"   # slightly darker for contrast panels
+ACCENT_BLUE    = "#5B8DEF"
+ACCENT_GREEN   = "#4CAF82"
+ACCENT_RED     = "#E06C6C"
+ACCENT_AMBER   = "#E8A84C"
+TEXT_PRIMARY    = "#2E3A47"
+TEXT_SECONDARY  = "#8292A5"
+WHITE          = "#FFFFFF"
+
+# ── Global app stylesheet ─────────────────────────────────────────────
+# Applied once on the QApplication / top-level widget.
 GLOBAL_STYLE = f"""
+* {{
+    margin: 0;
+    padding: 0;
+}}
 QWidget {{
     background-color: {SURFACE};
     color: {TEXT_PRIMARY};
-    font-family: "Segoe UI", "Inter", sans-serif;
+    font-family: "Segoe UI", "Inter", "SF Pro Display", sans-serif;
     font-size: 14px;
+    border: none;
 }}
-"""
-
-CARD_RAISED = f"""
-QFrame {{
-    background-color: {SURFACE};
-    border: 1px solid {LIGHT_SHADOW};
-    border-radius: 16px;
-    padding: 16px;
-}}
-"""
-
-CARD_INSET = f"""
-QFrame {{
-    background-color: {SURFACE};
-    border: 1px solid {DARK_SHADOW};
-    border-radius: 12px;
-    padding: 12px;
-}}
-"""
-
-BUTTON_NEO = f"""
-QPushButton {{
-    background-color: {SURFACE};
-    color: {TEXT_PRIMARY};
-    border: 1px solid {LIGHT_SHADOW};
-    border-radius: 12px;
-    padding: 10px 24px;
-    font-weight: 600;
-    font-size: 14px;
-    min-height: 36px;
-}}
-QPushButton:hover {{
-    background-color: #D6DBE3;
-}}
-QPushButton:pressed {{
-    border: 1px solid {DARK_SHADOW};
-    background-color: #D0D5DC;
-}}
-"""
-
-STATUS_PILL_ACTIVE = f"""
 QLabel {{
-    background-color: {ACCENT_GREEN};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
-    font-size: 12px;
-    font-weight: 600;
+    background: transparent;
+    border: none;
+}}
+QStackedWidget {{
+    background: transparent;
+    border: none;
 }}
 """
 
-STATUS_PILL_INACTIVE = f"""
-QLabel {{
-    background-color: {DARK_SHADOW};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
-    font-size: 12px;
-    font-weight: 600;
-}}
-"""
+# ── Typography helpers (applied via setStyleSheet on individual labels) ─
+FONT_TITLE    = f"font-size: 20px; font-weight: 700; color: {TEXT_PRIMARY}; background: transparent;"
+FONT_HEADING  = f"font-size: 32px; font-weight: 300; color: {TEXT_SECONDARY}; background: transparent;"
+FONT_SUBHEAD  = f"font-size: 15px; color: {TEXT_SECONDARY}; background: transparent;"
+FONT_LARGE    = f"font-size: 38px; font-weight: 700; background: transparent;"
+FONT_BODY     = f"font-size: 14px; color: {TEXT_PRIMARY}; background: transparent;"
+FONT_SMALL    = f"font-size: 12px; color: {TEXT_SECONDARY}; background: transparent;"
+FONT_ICON     = f"font-size: 18px; color: {TEXT_SECONDARY}; background: transparent;"
 
-STATUS_PILL_ERROR = f"""
-QLabel {{
-    background-color: {ACCENT_RED};
-    color: white;
-    border-radius: 10px;
-    padding: 4px 12px;
-    font-size: 12px;
-    font-weight: 600;
-}}
-"""
-
-INPUT_NEO = f"""
+# ── Input fields (inset-style via QSS; shadow painted in NeoInput) ────
+INPUT_STYLE = f"""
 QLineEdit {{
-    background-color: {SURFACE};
-    border: 1px solid {DARK_SHADOW};
-    border-radius: 10px;
-    padding: 8px 14px;
+    background-color: transparent;
     color: {TEXT_PRIMARY};
     font-size: 14px;
+    padding: 8px 14px;
+    border: none;
+    selection-background-color: {ACCENT_BLUE};
 }}
 QLineEdit:focus {{
-    border: 2px solid {ACCENT_BLUE};
-}}
-"""
-
-TOP_BAR_STYLE = f"""
-QFrame {{
-    background-color: {SURFACE};
-    border-bottom: 1px solid {DARK_SHADOW};
-    min-height: 60px;
-    max-height: 60px;
-    padding: 0 16px;
-}}
-"""
-
-BOTTOM_TRAY_STYLE = f"""
-QFrame {{
-    background-color: {SURFACE};
-    border-top: 1px solid {DARK_SHADOW};
-    min-height: 220px;
-    max-height: 220px;
+    color: {TEXT_PRIMARY};
 }}
 """
