@@ -21,6 +21,115 @@ from .shadows import paint_neo_raised, NEO_RADIUS
 from .widgets import NeoButton, NeoInput
 
 
+class AdminLoginDialog(QDialog):
+    """Small neumorphic dialog that authenticates an admin via the backend API."""
+
+    def __init__(self, api_client, parent=None) -> None:
+        super().__init__(parent)
+        self.api_client = api_client
+        self._authenticated = False
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setFixedSize(400, 340)
+        self.setStyleSheet(styles.GLOBAL_STYLE)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._build_ui()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        p = QPainter(self)
+        rect = QRectF(12, 12, self.width() - 24, self.height() - 24)
+        paint_neo_raised(p, rect, radius=24, distance=10)
+        p.end()
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(36, 36, 36, 28)
+        root.setSpacing(14)
+
+        title = QLabel("Admin Login")
+        title.setStyleSheet(
+            f"font-size: 20px; font-weight: 700; color: {styles.TEXT_PRIMARY}; background: transparent;"
+        )
+        root.addWidget(title)
+
+        subtitle = QLabel("Sign in with an admin account to access settings")
+        subtitle.setStyleSheet(styles.FONT_SMALL)
+        subtitle.setWordWrap(True)
+        root.addWidget(subtitle)
+
+        root.addSpacing(4)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        def _label(text: str) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setStyleSheet(
+                f"font-size: 12px; font-weight: 600; color: {styles.TEXT_SECONDARY}; background: transparent;"
+            )
+            return lbl
+
+        self.email_input = NeoInput("admin@team.org")
+        form.addRow(_label("Email"), self.email_input)
+
+        self.password_input = NeoInput("Password")
+        self.password_input.setEchoMode(self.password_input.EchoMode.Password)
+        form.addRow(_label("Password"), self.password_input)
+
+        self._error_label = QLabel("")
+        self._error_label.setStyleSheet(
+            f"font-size: 11px; color: {styles.ACCENT_RED}; background: transparent;"
+        )
+        self._error_label.setWordWrap(True)
+        form.addRow(_label(""), self._error_label)
+
+        root.addLayout(form)
+        root.addStretch()
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.addStretch()
+
+        cancel_btn = NeoButton(text="Cancel")
+        cancel_btn.setFixedSize(100, 44)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        login_btn = NeoButton(text="Login")
+        login_btn.setFixedSize(100, 44)
+        login_btn.clicked.connect(self._do_login)
+        btn_row.addWidget(login_btn)
+
+        root.addLayout(btn_row)
+
+    def _do_login(self) -> None:
+        email = self.email_input.text().strip()
+        password = self.password_input.text()
+        if not email or not password:
+            self._error_label.setText("Please enter email and password.")
+            return
+        try:
+            result = self.api_client.admin_login(email, password)
+            role = result.get("role", "")
+            if role not in ("admin", "mentor"):
+                self._error_label.setText("Access denied. Admin or mentor role required.")
+                return
+            self._authenticated = True
+            self.accept()
+        except Exception as exc:
+            err = str(exc)
+            if "401" in err:
+                self._error_label.setText("Invalid email or password.")
+            elif "Connection" in err or "connect" in err.lower():
+                self._error_label.setText("Cannot reach the server. Check your network.")
+            else:
+                self._error_label.setText(f"Login failed: {err[:80]}")
+
+    @property
+    def authenticated(self) -> bool:
+        return self._authenticated
+
+
 class SettingsDialog(QDialog):
     """Configuration dialog with neumorphic card background."""
 
@@ -77,14 +186,6 @@ class SettingsDialog(QDialog):
         self.scanner_id_input.setText(self.config.scanner_id)
         form.addRow(_label("Scanner ID"), self.scanner_id_input)
 
-        self.lat_input = NeoInput("Latitude")
-        self.lat_input.setText(str(self.config.geofence_lat))
-        form.addRow(_label("Latitude"), self.lat_input)
-
-        self.lng_input = NeoInput("Longitude")
-        self.lng_input.setText(str(self.config.geofence_lng))
-        form.addRow(_label("Longitude"), self.lng_input)
-
         self.webcam_input = NeoInput("0")
         self.webcam_input.setText(str(self.config.webcam_index))
         form.addRow(_label("Webcam #"), self.webcam_input)
@@ -133,8 +234,6 @@ class SettingsDialog(QDialog):
         self.config.api_base_url = self.api_url_input.text()
         self.config.api_key = self.api_key_input.text()
         self.config.scanner_id = self.scanner_id_input.text()
-        self.config.geofence_lat = float(self.lat_input.text() or 0)
-        self.config.geofence_lng = float(self.lng_input.text() or 0)
         self.config.webcam_index = int(self.webcam_input.text() or 0)
         self.config.qr_selfie_enabled = self.selfie_check.isChecked()
         save_config(self.config)

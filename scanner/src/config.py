@@ -20,12 +20,8 @@ class ScannerConfig:
     scanner_id: str = "MAIN_ENTRANCE"
     api_base_url: str = "https://your-app.railway.app"
     api_key: str = ""
-    geofence_lat: float = 37.7749
-    geofence_lng: float = -122.4194
-    geofence_radius_meters: int = 100
     qr_selfie_enabled: bool = True
     webcam_index: int = 0
-    daily_hour_cap: int = 12
     offline_cache_path: str = "./offline_cache.enc"
 
 

@@ -23,7 +23,6 @@ from PyQt6.QtGui import (
     QColor,
     QFont,
     QImage,
-    QMouseEvent,
     QPainter,
     QPaintEvent,
     QPixmap,
@@ -44,7 +43,7 @@ from .config import ScannerConfig
 from .nfc_reader import NfcReaderThread
 from .offline import OfflineManager
 from .qr_reader import QrReaderThread
-from .settings_dialog import SettingsDialog
+from .settings_dialog import AdminLoginDialog, SettingsDialog
 from .shadows import (
     NEO_BASE,
     NEO_DISTANCE,
@@ -151,11 +150,12 @@ class MainWindow(QWidget):
         self.offline = OfflineManager(config.offline_cache_path, config.api_key or "dev")
         self._online = False
         self._cache_version = 0
-        self._drag_pos = None
 
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
         self.setStyleSheet(styles.GLOBAL_STYLE)
-        self.setMinimumSize(960, 680)
 
         self._build_ui()
         self._start_threads()
@@ -191,6 +191,7 @@ class MainWindow(QWidget):
         self.pill_api = StatusPill("API")
         self.pill_nfc = StatusPill("NFC")
         self.pill_queue = StatusPill("Queue: 0")
+        self.pill_queue.setMinimumWidth(110)
         for pill in (self.pill_api, self.pill_nfc, self.pill_queue):
             lay.addWidget(pill)
 
@@ -477,9 +478,17 @@ class MainWindow(QWidget):
         else:
             self.pill_queue.set_active("Queue: 0")
 
-    # ================================================================= Settings
+    # ================================================================= Settings (PIN-locked)
 
     def _open_settings(self) -> None:
+        """Authenticate as admin via backend login before opening settings."""
+        login_dlg = AdminLoginDialog(self.api, self)
+        if not login_dlg.exec() or not login_dlg.authenticated:
+            if not login_dlg.authenticated and login_dlg.result():
+                self._event_log.add_event("\u26D4  Settings: access denied", success=False)
+            return
+
+        self._event_log.add_event("\U0001F513  Admin authenticated — settings opened", success=True)
         dlg = SettingsDialog(self.config, self.api, self)
         if dlg.exec():
             self._nfc_thread.stop()
@@ -488,21 +497,6 @@ class MainWindow(QWidget):
             self.api = ApiClient(self.config)
             self.offline = OfflineManager(self.config.offline_cache_path, self.config.api_key or "dev")
             self._start_threads()
-
-    # ================================================================= Window drag
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 64:
-            self._drag_pos = event.globalPosition().toPoint()
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if self._drag_pos is not None:
-            delta = event.globalPosition().toPoint() - self._drag_pos
-            self.move(self.pos() + delta)
-            self._drag_pos = event.globalPosition().toPoint()
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        self._drag_pos = None
 
     # ================================================================= Cleanup
 

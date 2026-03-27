@@ -89,6 +89,32 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    def admin_login(self, email: str, password: str) -> dict:
+        """Authenticate against /auth/login and return the decoded JWT payload.
+
+        Returns dict with 'access_token' and parsed 'role' on success.
+        Raises on failure.
+        """
+        import json
+        import base64
+
+        resp = self._client.post(
+            f"{self.base_url}/auth/login",
+            json={"email": email, "password": password},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        token = data.get("access_token", "")
+
+        # Decode JWT payload (we only need the role claim — no signature
+        # verification needed since the server already validated creds).
+        parts = token.split(".")
+        if len(parts) >= 2:
+            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+            data["role"] = payload.get("role", "")
+        return data
+
     def test_connection(self) -> bool:
         try:
             resp = self._client.post(

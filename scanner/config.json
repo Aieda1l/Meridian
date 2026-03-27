@@ -2,11 +2,7 @@
   "scanner_id": "MAIN_ENTRANCE",
   "api_base_url": "https://your-app.railway.app",
   "api_key": "",
-  "geofence_lat": 37.7749,
-  "geofence_lng": -122.4194,
-  "geofence_radius_meters": 100,
   "qr_selfie_enabled": true,
   "webcam_index": 0,
-  "daily_hour_cap": 12,
   "offline_cache_path": "./offline_cache.enc"
 }

@@ -12,7 +12,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     config = load_config()
     window = MainWindow(config)
-    window.showMaximized()
+    window.showFullScreen()
     sys.exit(app.exec())
 
 
