@@ -1,0 +1,424 @@
+"""Admin router — dashboard, seasons, export, audit log.
+
+- GET  /admin/dashboard   — live dashboard stats
+- GET  /admin/seasons     — list all seasons
+- POST /admin/seasons     — create new season (deactivates current, rolls over)
+- PATCH /admin/seasons/{id} — update season
+- GET  /admin/export      — download CSV or PDF report
+- GET  /admin/audit-log   — paginated audit log
+"""
+
+from __future__ import annotations
+
+import io
+import uuid
+from datetime import date, datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.core.encryption import pgp_decrypt
+from app.core.security import get_current_member, require_admin, require_admin_or_mentor
+from app.models.admin_event import AdminEvent
+from app.models.hour_warning import HourWarning
+from app.models.member import Member
+from app.models.scanner import Scanner
+from app.models.season import Season
+from app.models.session import CheckOutMethod, Session, SessionStatus
+from app.schemas.admin import (
+    AuditLogEntry,
+    AuditLogResponse,
+    DashboardMemberStatus,
+    DashboardResponse,
+    SeasonCreate,
+    SeasonOut,
+    SeasonUpdate,
+)
+from app.services.audit import log_event
+from app.services.export import generate_csv, generate_pdf
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/dashboard
+# ---------------------------------------------------------------------------
+
+@router.get("/dashboard", response_model=DashboardResponse)
+async def get_dashboard(
+    member: Member = Depends(require_admin_or_mentor),
+    db: AsyncSession = Depends(get_db),
+) -> DashboardResponse:
+    """Live dashboard: active members, checked-in list, flags, scanner status."""
+
+    # Active member count
+    active_count_result = await db.execute(
+        select(func.count()).select_from(Member).where(Member.is_active == True)  # noqa: E712
+    )
+    active_member_count = active_count_result.scalar_one()
+
+    # Checked-in (open) sessions with member info
+    open_sessions_result = await db.execute(
+        select(Session, Member)
+        .join(Member, Session.member_id == Member.id)
+        .where(Session.status == SessionStatus.open)
+    )
+    open_rows = open_sessions_result.all()
+
+    now = datetime.now(timezone.utc)
+    checked_in_members: list[DashboardMemberStatus] = []
+    for session, mem in open_rows:
+        name = await pgp_decrypt(db, mem.name_encrypted) if mem.name_encrypted else ""
+        elapsed = int((now - session.check_in_at).total_seconds() / 60)
+        checked_in_members.append(
+            DashboardMemberStatus(
+                member_id=str(mem.id),
+                member_name=name,
+                member_number=mem.member_number,
+                check_in_at=session.check_in_at,
+                duration_minutes=elapsed,
+            )
+        )
+
+    # Flagged session count
+    flagged_result = await db.execute(
+        select(func.count()).select_from(Session).where(Session.status == SessionStatus.flagged)
+    )
+    flagged_session_count = flagged_result.scalar_one()
+
+    # Hour-cap violations today
+    today_start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    violations_result = await db.execute(
+        select(func.count())
+        .select_from(HourWarning)
+        .where(HourWarning.triggered_at >= today_start)
+    )
+    hour_cap_violations_today = violations_result.scalar_one()
+
+    # Scanner statuses
+    scanners_result = await db.execute(select(Scanner))
+    scanners = scanners_result.scalars().all()
+    scanner_statuses = [
+        {
+            "id": s.id,
+            "name": s.name,
+            "last_seen_at": s.last_seen_at.isoformat() if s.last_seen_at else None,
+        }
+        for s in scanners
+    ]
+
+    return DashboardResponse(
+        active_member_count=active_member_count,
+        checked_in_count=len(checked_in_members),
+        checked_in_members=checked_in_members,
+        flagged_session_count=flagged_session_count,
+        hour_cap_violations_today=hour_cap_violations_today,
+        scanner_statuses=scanner_statuses,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/seasons
+# ---------------------------------------------------------------------------
+
+@router.get("/seasons", response_model=list[SeasonOut])
+async def list_seasons(
+    member: Member = Depends(require_admin_or_mentor),
+    db: AsyncSession = Depends(get_db),
+) -> list[SeasonOut]:
+    """Return all seasons ordered by start_date descending."""
+    result = await db.execute(select(Season).order_by(Season.start_date.desc()))
+    seasons = result.scalars().all()
+    return [
+        SeasonOut(
+            id=str(s.id),
+            name=s.name,
+            start_date=s.start_date,
+            end_date=s.end_date,
+            is_active=s.is_active,
+            daily_hour_cap=float(s.daily_hour_cap),
+            weekly_hour_cap=float(s.weekly_hour_cap),
+            season_hour_cap=float(s.season_hour_cap),
+            created_at=s.created_at,
+        )
+        for s in seasons
+    ]
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/seasons
+# ---------------------------------------------------------------------------
+
+@router.post("/seasons", response_model=SeasonOut, status_code=status.HTTP_201_CREATED)
+async def create_season(
+    body: SeasonCreate,
+    request: Request,
+    member: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> SeasonOut:
+    """Create a new season with rollover logic.
+
+    1. Deactivate the currently active season.
+    2. Close all open sessions from the old season.
+    3. Create the new season as active.
+    4. Write an audit log entry.
+    """
+    # Find and deactivate the current active season
+    old_season_id: str | None = None
+    active_result = await db.execute(
+        select(Season).where(Season.is_active == True)  # noqa: E712
+    )
+    old_season = active_result.scalar_one_or_none()
+    if old_season:
+        old_season_id = str(old_season.id)
+        old_season.is_active = False
+
+        # Close all open sessions from the old season
+        open_sessions_result = await db.execute(
+            select(Session).where(
+                and_(
+                    Session.season_id == old_season.id,
+                    Session.status == SessionStatus.open,
+                )
+            )
+        )
+        open_sessions = open_sessions_result.scalars().all()
+        now = datetime.now(timezone.utc)
+        for sess in open_sessions:
+            sess.status = SessionStatus.closed
+            sess.check_out_at = now
+            sess.check_out_method = CheckOutMethod.auto_timeout
+            sess.flag_reason = "season_rollover"
+            sess.duration_minutes = int((now - sess.check_in_at).total_seconds() / 60)
+
+    # Create new season
+    new_season = Season(
+        name=body.name,
+        start_date=body.start_date,
+        end_date=body.end_date,
+        is_active=True,
+        daily_hour_cap=body.daily_hour_cap,
+        weekly_hour_cap=body.weekly_hour_cap,
+        season_hour_cap=body.season_hour_cap,
+    )
+    db.add(new_season)
+    await db.flush()
+
+    # Audit log
+    await log_event(
+        db,
+        event_type="season_created",
+        actor_id=member.id,
+        target_id=new_season.id,
+        detail={"old_season_id": old_season_id, "new_season_name": body.name},
+        ip_address=request.client.host if request.client else None,
+    )
+
+    await db.commit()
+    await db.refresh(new_season)
+
+    return SeasonOut(
+        id=str(new_season.id),
+        name=new_season.name,
+        start_date=new_season.start_date,
+        end_date=new_season.end_date,
+        is_active=new_season.is_active,
+        daily_hour_cap=float(new_season.daily_hour_cap),
+        weekly_hour_cap=float(new_season.weekly_hour_cap),
+        season_hour_cap=float(new_season.season_hour_cap),
+        created_at=new_season.created_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /admin/seasons/{id}
+# ---------------------------------------------------------------------------
+
+@router.patch("/seasons/{season_id}", response_model=SeasonOut)
+async def update_season(
+    season_id: uuid.UUID,
+    body: SeasonUpdate,
+    request: Request,
+    member: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> SeasonOut:
+    """Update season fields that are provided."""
+    result = await db.execute(select(Season).where(Season.id == season_id))
+    season = result.scalar_one_or_none()
+    if season is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Season not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
+
+    for field, value in update_data.items():
+        setattr(season, field, value)
+
+    await log_event(
+        db,
+        event_type="season_updated",
+        actor_id=member.id,
+        target_id=season.id,
+        detail={"updated_fields": list(update_data.keys())},
+        ip_address=request.client.host if request.client else None,
+    )
+
+    await db.commit()
+    await db.refresh(season)
+
+    return SeasonOut(
+        id=str(season.id),
+        name=season.name,
+        start_date=season.start_date,
+        end_date=season.end_date,
+        is_active=season.is_active,
+        daily_hour_cap=float(season.daily_hour_cap),
+        weekly_hour_cap=float(season.weekly_hour_cap),
+        season_hour_cap=float(season.season_hour_cap),
+        created_at=season.created_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/export
+# ---------------------------------------------------------------------------
+
+@router.get("/export")
+async def export_report(
+    season_id: uuid.UUID = Query(..., description="Season to export"),
+    format: str = Query("csv", regex="^(csv|pdf)$", description="Export format: csv or pdf"),
+    member_id: uuid.UUID | None = Query(None, description="Optional member filter"),
+    member: Member = Depends(require_admin_or_mentor),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Download a CSV or PDF attendance report for a season."""
+
+    # Verify season exists
+    season_result = await db.execute(select(Season).where(Season.id == season_id))
+    season = season_result.scalar_one_or_none()
+    if season is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Season not found")
+
+    # Build session query
+    stmt = (
+        select(Session, Member)
+        .join(Member, Session.member_id == Member.id)
+        .where(Session.season_id == season_id)
+        .order_by(Member.member_number, Session.check_in_at)
+    )
+    if member_id:
+        stmt = stmt.where(Session.member_id == member_id)
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    # Build session dicts and accumulate member totals
+    sessions: list[dict] = []
+    totals_map: dict[str, dict] = {}  # member_number -> {name, total_minutes}
+
+    for sess, mem in rows:
+        name = await pgp_decrypt(db, mem.name_encrypted) if mem.name_encrypted else ""
+        dur = sess.duration_minutes or 0
+
+        sessions.append({
+            "member_number": mem.member_number,
+            "name": name,
+            "role": mem.role.value if mem.role else "",
+            "date": sess.check_in_at.strftime("%Y-%m-%d"),
+            "check_in_time": sess.check_in_at.strftime("%H:%M"),
+            "check_out_time": sess.check_out_at.strftime("%H:%M") if sess.check_out_at else "",
+            "duration_minutes": dur,
+            "method": sess.check_in_method.value if sess.check_in_method else "",
+            "status": sess.status.value if sess.status else "",
+            "flag_reason": sess.flag_reason or "",
+        })
+
+        key = mem.member_number
+        if key not in totals_map:
+            totals_map[key] = {"member_number": key, "name": name, "total_minutes": 0}
+        totals_map[key]["total_minutes"] += dur
+
+    member_totals = list(totals_map.values())
+
+    if format == "pdf":
+        content = generate_pdf(sessions, member_totals, season.name)
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="attendance_{season.name}.pdf"',
+            },
+        )
+
+    # Default: CSV
+    content = generate_csv(sessions, member_totals)
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="attendance_{season.name}.csv"',
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/audit-log
+# ---------------------------------------------------------------------------
+
+@router.get("/audit-log", response_model=AuditLogResponse)
+async def get_audit_log(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=200, description="Items per page"),
+    event_type: str | None = Query(None, description="Filter by event type"),
+    member: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> AuditLogResponse:
+    """Paginated audit log. Admin only."""
+
+    # Base query
+    where_clauses = []
+    if event_type:
+        where_clauses.append(AdminEvent.event_type == event_type)
+
+    # Total count
+    count_stmt = select(func.count()).select_from(AdminEvent)
+    if where_clauses:
+        count_stmt = count_stmt.where(*where_clauses)
+    total_result = await db.execute(count_stmt)
+    total = total_result.scalar_one()
+
+    # Paginated results
+    offset = (page - 1) * page_size
+    items_stmt = (
+        select(AdminEvent)
+        .order_by(AdminEvent.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    if where_clauses:
+        items_stmt = items_stmt.where(*where_clauses)
+
+    items_result = await db.execute(items_stmt)
+    events = items_result.scalars().all()
+
+    return AuditLogResponse(
+        items=[
+            AuditLogEntry(
+                id=str(e.id),
+                actor_id=str(e.actor_id) if e.actor_id else None,
+                event_type=e.event_type,
+                target_id=str(e.target_id) if e.target_id else None,
+                detail=e.detail,
+                ip_address=str(e.ip_address) if e.ip_address else None,
+                created_at=e.created_at,
+            )
+            for e in events
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
