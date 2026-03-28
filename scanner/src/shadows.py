@@ -28,7 +28,7 @@ NEO_SHADOW_L   = "#ffffff"        # light shadow color (exact Themesberg)
 
 # Soft / raised: 6px 6px 12px #b8b9be, -6px -6px 12px #fff
 NEO_DISTANCE   = 6                # px offset  (Themesberg uses 6)
-NEO_BLUR       = 12               # px blur    (Themesberg uses 12)
+NEO_BLUR       = 24               # px blur    (Themesberg uses 12)
 
 # Border radius tokens (from Themesberg CSS)
 NEO_RADIUS_SM  = 8.8              # 0.55rem ≈ 8.8px — .card, .btn, .form-control
