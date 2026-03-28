@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -290,115 +291,136 @@ class NeoInput(QWidget):
 
 
 # ───────────────────────────────────────────────────────────────────────
-# EventLogWidget — last N events inside a raised neumorphic card
+# EventLogWidget — scrollable event log inside a raised neumorphic card
+#
+# Structure:
+#   EventLogWidget  (painted raised card)
+#     └─ QVBoxLayout
+#          ├─ header QLabel  ("Recent Activity")
+#          └─ QScrollArea    (clips + scrolls)
+#               └─ _scroll_content QWidget
+#                    └─ QVBoxLayout  (rows live here)
 # ───────────────────────────────────────────────────────────────────────
 
-class _EventRow(QWidget):
-    """Single event row: inset background, left accent bar, QLabel text."""
+class _EventRow(QFrame):
+    """Single event row with left accent bar.
+
+    Uses QFrame + QSS border-left for the accent and a QLabel that
+    word-wraps so long text never clips.  Minimum height 40 px but
+    grows taller when text wraps.
+    """
 
     def __init__(self, text: str, color: QColor, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._color = color
-        self.setFixedHeight(44)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setMinimumHeight(40)
 
-        # Use a real QLabel so text elides properly instead of being clipped
-        self._label = QLabel(text, self)
+        # Accent color as a CSS border-left on the frame
+        hex_color = color.name()
+        self.setStyleSheet(
+            f"_EventRow {{"
+            f"  background-color: {styles.SURFACE_DARK};"
+            f"  border-left: 4px solid {hex_color};"
+            f"  border-radius: 6px;"
+            f"}}"
+        )
+
+        self._label = QLabel(text)
+        self._label.setWordWrap(True)
         self._label.setStyleSheet(
             f"font-size: 12px; font-weight: 400; color: {styles.TEXT_PRIMARY}; "
             f"background: transparent; "
             f"font-family: 'Nunito Sans', 'Segoe UI', sans-serif;"
+            f"padding: 0px;"
         )
-        self._label.setWordWrap(True)
 
         lay = QHBoxLayout(self)
-        # left margin: 4 (widget) + 3 (bar gap) + 4 (bar) + 8 (text gap) = 19
-        lay.setContentsMargins(20, 4, 12, 4)
+        lay.setContentsMargins(12, 8, 10, 8)
         lay.addWidget(self._label)
-
-    def paintEvent(self, event: QPaintEvent) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        margin = 2
-        rect = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
-
-        # Subtle inset background
-        paint_neo_inset(p, rect, radius=NEO_RADIUS_SM, distance=2, intensity=0.08)
-
-        # Left accent bar
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(self._color)
-        bar_rect = QRectF(rect.left() + 4, rect.top() + 6, 4, rect.height() - 12)
-        p.drawRoundedRect(bar_rect, 2, 2)
-
-        p.end()
 
 
 class EventLogWidget(QWidget):
-    """Raised neumorphic card showing the last 4 scan events with headers."""
-
-    MAX_ROWS = 4
+    """Raised neumorphic card containing a scrollable list of event rows."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._shadow_spread: float = float(NEO_DISTANCE)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+        # Shadow margin — must match paintEvent
+        _m = NEO_DISTANCE + 4
+
         outer = QVBoxLayout(self)
-        # Leave room for the painted shadow on all sides
-        outer.setContentsMargins(NEO_DISTANCE + 4, NEO_DISTANCE + 4,
-                                 NEO_DISTANCE + 4, NEO_DISTANCE + 4)
+        outer.setContentsMargins(_m, _m, _m, _m)
         outer.setSpacing(0)
 
-        # Header
-        header = QLabel("Recent Activity")
+        # Header — inside the card, below the top shadow margin
+        header = QLabel("  Recent Activity")
+        header.setFixedHeight(28)
         header.setStyleSheet(
             f"font-size: 13px; font-weight: 700; color: {styles.TEXT_PRIMARY}; "
             f"background: transparent; "
             f"font-family: 'Nunito Sans', 'Segoe UI', sans-serif;"
         )
         outer.addWidget(header)
-        outer.addSpacing(6)
 
-        # Rows area
-        self._rows_layout = QVBoxLayout()
-        self._rows_layout.setContentsMargins(0, 0, 0, 0)
-        self._rows_layout.setSpacing(4)
+        # Scroll area — fills the rest of the card
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._scroll.setStyleSheet(
+            f"QScrollArea {{ background: transparent; border: none; }}"
+            f"QScrollBar:vertical {{"
+            f"  background: transparent; width: 6px; margin: 2px;"
+            f"}}"
+            f"QScrollBar::handle:vertical {{"
+            f"  background: {styles.BORDER_LIGHT}; border-radius: 3px; min-height: 20px;"
+            f"}}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{"
+            f"  height: 0px;"
+            f"}}"
+        )
+
+        # Content widget inside scroll area
+        self._scroll_content = QWidget()
+        self._scroll_content.setStyleSheet("background: transparent;")
+        self._rows_layout = QVBoxLayout(self._scroll_content)
+        self._rows_layout.setContentsMargins(4, 4, 4, 4)
+        self._rows_layout.setSpacing(6)
         self._rows_layout.addStretch()
-        outer.addLayout(self._rows_layout, stretch=1)
+
+        self._scroll.setWidget(self._scroll_content)
+        outer.addWidget(self._scroll, stretch=1)
 
         self._rows: list[_EventRow] = []
 
+    # -- Paint the raised neumorphic card behind everything ---------------
+
     def paintEvent(self, event: QPaintEvent) -> None:
         p = QPainter(self)
-        margin = NEO_DISTANCE + 2
-        content = QRectF(margin, margin,
-                         self.width() - 2 * margin,
-                         self.height() - 2 * margin)
-        paint_neo_raised(p, content, radius=NEO_RADIUS_LG, distance=NEO_DISTANCE, blur=12)
+        _m = NEO_DISTANCE + 2
+        card = QRectF(_m, _m, self.width() - 2 * _m, self.height() - 2 * _m)
+        paint_neo_raised(p, card, radius=NEO_RADIUS_LG, distance=NEO_DISTANCE, blur=12)
         p.end()
+
+    # -- Public API -------------------------------------------------------
 
     def add_event(self, text: str, success: bool = True) -> None:
         color = QColor(styles.ACCENT_GREEN) if success else QColor(styles.ACCENT_RED)
-        row = _EventRow(text, color, self)
-
-        if len(self._rows) >= self.MAX_ROWS:
-            old = self._rows.pop(0)
-            self._rows_layout.removeWidget(old)
-            old.deleteLater()
+        row = _EventRow(text, color)
 
         self._rows.append(row)
-        self._rows_layout.addWidget(row)
+        # Insert before the stretch so rows stack top-down
+        self._rows_layout.insertWidget(self._rows_layout.count() - 1, row)
 
-        # Slide-up entrance
-        start_geom = row.geometry()
-        start_geom.moveTop(start_geom.top() + 20)
-        anim = QPropertyAnimation(row, b"geometry", row)
-        anim.setDuration(200)
-        anim.setStartValue(start_geom)
-        anim.setEndValue(row.geometry())
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+        # Auto-scroll to the newest entry
+        QTimer.singleShot(50, lambda: self._scroll.verticalScrollBar().setValue(
+            self._scroll.verticalScrollBar().maximum()
+        ))
