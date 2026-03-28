@@ -290,59 +290,96 @@ class NeoInput(QWidget):
 
 
 # ───────────────────────────────────────────────────────────────────────
-# EventLogWidget — last N events with slide-up animation
+# EventLogWidget — last N events inside a raised neumorphic card
 # ───────────────────────────────────────────────────────────────────────
 
 class _EventRow(QWidget):
-    """Single event row painted with a subtle left-accent bar."""
+    """Single event row: inset background, left accent bar, QLabel text."""
 
     def __init__(self, text: str, color: QColor, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._text = text
         self._color = color
-        self.setFixedHeight(52)
+        self.setFixedHeight(44)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        # Use a real QLabel so text elides properly instead of being clipped
+        self._label = QLabel(text, self)
+        self._label.setStyleSheet(
+            f"font-size: 12px; font-weight: 400; color: {styles.TEXT_PRIMARY}; "
+            f"background: transparent; "
+            f"font-family: 'Nunito Sans', 'Segoe UI', sans-serif;"
+        )
+        self._label.setWordWrap(True)
+
+        lay = QHBoxLayout(self)
+        # left margin: 4 (widget) + 3 (bar gap) + 4 (bar) + 8 (text gap) = 19
+        lay.setContentsMargins(20, 4, 12, 4)
+        lay.addWidget(self._label)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        margin = 4
+        margin = 2
         rect = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
 
         # Subtle inset background
-        paint_neo_inset(p, rect, radius=NEO_RADIUS_SM, distance=2,
-                        intensity=0.08)
+        paint_neo_inset(p, rect, radius=NEO_RADIUS_SM, distance=2, intensity=0.08)
 
         # Left accent bar
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(self._color)
-        bar_rect = QRectF(rect.left() + 3, rect.top() + 6, 4, rect.height() - 12)
+        bar_rect = QRectF(rect.left() + 4, rect.top() + 6, 4, rect.height() - 12)
         p.drawRoundedRect(bar_rect, 2, 2)
 
-        # Text — Nunito Sans, 14px, weight 300 (body text)
-        p.setPen(QColor(styles.TEXT_PRIMARY))
-        font = QFont("Nunito Sans", 10)
-        font.setWeight(QFont.Weight.Light)
-        p.setFont(font)
-        text_rect = rect.adjusted(16, 0, -8, 0)
-        p.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                   self._text)
         p.end()
 
 
 class EventLogWidget(QWidget):
-    """Shows the last 3 scan events with slide-up entrance animations."""
+    """Raised neumorphic card showing the last 4 scan events with headers."""
 
-    MAX_ROWS = 3
+    MAX_ROWS = 4
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(8, 8, 8, 8)
-        self._layout.setSpacing(6)
-        self._layout.addStretch()
+        self._shadow_spread: float = float(NEO_DISTANCE)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        outer = QVBoxLayout(self)
+        # Leave room for the painted shadow on all sides
+        outer.setContentsMargins(NEO_DISTANCE + 4, NEO_DISTANCE + 4,
+                                 NEO_DISTANCE + 4, NEO_DISTANCE + 4)
+        outer.setSpacing(0)
+
+        # Header
+        header = QLabel("Recent Activity")
+        header.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {styles.TEXT_PRIMARY}; "
+            f"background: transparent; "
+            f"font-family: 'Nunito Sans', 'Segoe UI', sans-serif;"
+        )
+        outer.addWidget(header)
+        outer.addSpacing(6)
+
+        # Rows area
+        self._rows_layout = QVBoxLayout()
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(4)
+        self._rows_layout.addStretch()
+        outer.addLayout(self._rows_layout, stretch=1)
+
         self._rows: list[_EventRow] = []
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        p = QPainter(self)
+        margin = NEO_DISTANCE + 2
+        content = QRectF(margin, margin,
+                         self.width() - 2 * margin,
+                         self.height() - 2 * margin)
+        paint_neo_raised(p, content, radius=NEO_RADIUS_LG, distance=NEO_DISTANCE, blur=12)
+        p.end()
 
     def add_event(self, text: str, success: bool = True) -> None:
         color = QColor(styles.ACCENT_GREEN) if success else QColor(styles.ACCENT_RED)
@@ -350,15 +387,15 @@ class EventLogWidget(QWidget):
 
         if len(self._rows) >= self.MAX_ROWS:
             old = self._rows.pop(0)
-            self._layout.removeWidget(old)
+            self._rows_layout.removeWidget(old)
             old.deleteLater()
 
         self._rows.append(row)
-        self._layout.addWidget(row)
+        self._rows_layout.addWidget(row)
 
         # Slide-up entrance
         start_geom = row.geometry()
-        start_geom.moveTop(start_geom.top() + 30)
+        start_geom.moveTop(start_geom.top() + 20)
         anim = QPropertyAnimation(row, b"geometry", row)
         anim.setDuration(200)
         anim.setStartValue(start_geom)
