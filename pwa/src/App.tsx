@@ -7,7 +7,15 @@ import History from './pages/History';
 import Login from './pages/Login';
 
 function ProtectedLayout() {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, loading, user, logout } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-neo-surface flex items-center justify-center">
+        <p className="text-neo-muted">Loading...</p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 

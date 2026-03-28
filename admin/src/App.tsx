@@ -10,7 +10,15 @@ import Reports from './pages/Reports';
 import AuditLog from './pages/AuditLog';
 
 function ProtectedLayout() {
-  const { isAuthenticated, role } = useAuth();
+  const { isAuthenticated, loading, role } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-neo-surface">
+        <p className="text-neo-muted">Loading...</p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
