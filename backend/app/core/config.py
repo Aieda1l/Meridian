@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # ── Google Wallet issuer ─────────────────────────────────────────────
     GOOGLE_WALLET_ISSUER_ID: str = ""
 
+    # ── Debug / Development ─────────────────────────────────────────────
+    DEBUG_SKIP_SCAN_VALIDATION: bool = False  # skip NFC HMAC + TOTP checks (dev only!)
+
     # ── CORS ─────────────────────────────────────────────────────────────
     # Stored as a raw string so pydantic-settings doesn't try to JSON-parse
     # the comma-separated value from .env before the validator runs.

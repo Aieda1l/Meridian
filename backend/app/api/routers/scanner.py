@@ -84,7 +84,16 @@ async def _validate_scan(
     db: AsyncSession,
     redis_client: Redis,
 ) -> None:
-    """Run NFC or QR validation. Raises 401 on failure."""
+    """Run NFC or QR validation. Raises 401 on failure.
+
+    When ``settings.DEBUG_SKIP_SCAN_VALIDATION`` is True the cryptographic
+    checks are bypassed — this allows the scanner simulator (and curl) to
+    test the full check-in/check-out flow without real NFC hardware or a
+    valid TOTP authenticator.
+    """
+    if settings.DEBUG_SKIP_SCAN_VALIDATION:
+        return  # dev mode — accept any scan payload
+
     if member.totp_secret_encrypted is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
