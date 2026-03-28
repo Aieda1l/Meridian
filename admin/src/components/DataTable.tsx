@@ -29,16 +29,13 @@ export default function DataTable<T>({
   loading,
 }: DataTableProps<T>) {
   return (
-    <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div className="neo-card" style={{ padding: 0, overflow: 'hidden' }}>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="neo-table">
           <thead>
-            <tr className="border-b border-gray-100">
+            <tr>
               {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className={`text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide ${col.className ?? ''}`}
-                >
+                <th key={col.key} className={col.className ?? ''}>
                   {col.header}
                 </th>
               ))}
@@ -47,13 +44,13 @@ export default function DataTable<T>({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={columns.length} className="px-4 py-8 text-center text-neo-muted">
                   Loading...
                 </td>
               </tr>
             ) : data.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={columns.length} className="px-4 py-8 text-center text-neo-muted">
                   No data
                 </td>
               </tr>
@@ -62,10 +59,10 @@ export default function DataTable<T>({
                 <tr
                   key={String(row[keyField])}
                   onClick={() => onRowClick?.(row)}
-                  className={`border-b border-gray-50 ${onRowClick ? 'cursor-pointer hover:bg-surface' : ''}`}
+                  className={onRowClick ? 'cursor-pointer' : ''}
                 >
                   {columns.map((col) => (
-                    <td key={col.key} className={`px-4 py-3 ${col.className ?? ''}`}>
+                    <td key={col.key} className={col.className ?? ''}>
                       {col.render(row)}
                     </td>
                   ))}
@@ -77,21 +74,21 @@ export default function DataTable<T>({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-light">
           <button
             onClick={() => onPageChange(Math.max(1, page - 1))}
             disabled={page === 1}
-            className="px-3 py-1 text-sm bg-surface rounded-lg disabled:opacity-30"
+            className="neo-btn text-sm py-1 px-3"
           >
             Previous
           </button>
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-neo-muted font-semibold">
             Page {page} of {totalPages}
           </span>
           <button
             onClick={() => onPageChange(Math.min(totalPages, page + 1))}
             disabled={page === totalPages}
-            className="px-3 py-1 text-sm bg-surface rounded-lg disabled:opacity-30"
+            className="neo-btn text-sm py-1 px-3"
           >
             Next
           </button>

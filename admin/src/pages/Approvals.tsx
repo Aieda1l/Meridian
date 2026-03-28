@@ -28,25 +28,25 @@ export default function Approvals() {
     }
   };
 
-  if (loading) return <div className="p-6 text-gray-400">Loading...</div>;
+  if (loading) return <div className="p-6 text-neo-muted">Loading...</div>;
 
   return (
     <div className="p-6 space-y-4">
-      <h2 className="text-2xl font-bold text-navy">Approvals</h2>
+      <h2 className="text-2xl font-bold text-neo-dark">Approvals</h2>
 
       {sessions.length === 0 ? (
-        <div className="bg-white rounded-xl p-12 shadow-sm text-center">
+        <div className="neo-card p-12 text-center">
           <p className="text-4xl mb-3">{'\u2705'}</p>
-          <p className="text-gray-500">No flagged sessions to review</p>
+          <p className="text-neo-muted">No flagged sessions to review</p>
         </div>
       ) : (
         <div className="space-y-3">
           {sessions.map((s) => (
-            <div key={s.id} className="bg-white rounded-xl p-5 shadow-sm">
+            <div key={s.id} className="neo-card p-5">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="font-semibold text-navy">{s.member_name ?? s.member_number}</p>
-                  <p className="text-sm text-gray-500 mt-0.5">
+                  <p className="font-semibold text-neo-dark">{s.member_name ?? s.member_number}</p>
+                  <p className="text-sm text-neo-muted mt-0.5">
                     {new Date(s.check_in_at).toLocaleDateString()}{' '}
                     {new Date(s.check_in_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     {' \u2192 '}
@@ -55,13 +55,13 @@ export default function Approvals() {
                       : 'no checkout'}
                   </p>
                   {s.duration_minutes != null && (
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-neo-muted">
                       Duration: {Math.floor(s.duration_minutes / 60)}h {s.duration_minutes % 60}m
                     </p>
                   )}
                 </div>
 
-                <span className="px-3 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded-full">
+                <span className="neo-badge-warning">
                   {s.flag_reason ?? 'flagged'}
                 </span>
               </div>
@@ -69,7 +69,7 @@ export default function Approvals() {
               <div className="flex gap-2 mt-4">
                 <button
                   onClick={() => handleApprove(s.id)}
-                  className="px-4 py-2 bg-success text-white rounded-lg text-sm font-medium hover:bg-opacity-90 transition"
+                  className="neo-btn neo-btn-success"
                 >
                   Approve
                 </button>

@@ -11,13 +11,13 @@ function ProtectedLayout() {
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   return (
-    <div className="min-h-screen bg-surface flex flex-col">
+    <div className="min-h-screen bg-neo-surface flex flex-col">
       {/* Header */}
-      <header className="bg-navy text-white px-4 py-3 flex items-center justify-between">
-        <span className="font-bold text-lg">Meridian</span>
+      <header className="neo-card-sm flex items-center justify-between rounded-none border-x-0 border-t-0">
+        <span className="font-bold text-lg text-neo-dark">Meridian</span>
         <div className="flex items-center gap-3">
-          <span className="text-sm opacity-80">{user?.name}</span>
-          <button onClick={logout} className="text-xs opacity-70 hover:opacity-100">
+          <span className="text-sm text-neo-muted">{user?.name}</span>
+          <button onClick={logout} className="neo-btn text-xs py-1 px-2">
             Logout
           </button>
         </div>
@@ -33,7 +33,7 @@ function ProtectedLayout() {
       </main>
 
       {/* Bottom nav */}
-      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex safe-bottom">
+      <nav className="fixed bottom-0 inset-x-0 bg-neo-surface border-t border-light flex safe-bottom shadow-neo-sm">
         {[
           { to: '/', label: 'Home', icon: '\u{1F3E0}' },
           { to: '/status', label: 'Hours', icon: '\u{1F4CA}' },
@@ -44,7 +44,7 @@ function ProtectedLayout() {
             to={item.to}
             end={item.to === '/'}
             className={({ isActive }) =>
-              `flex-1 flex flex-col items-center py-2 text-xs transition ${isActive ? 'text-navy font-semibold' : 'text-gray-400'}`
+              `neo-nav-item flex-1 flex flex-col items-center py-2 text-xs ${isActive ? 'active' : ''}`
             }
           >
             <span className="text-xl">{item.icon}</span>

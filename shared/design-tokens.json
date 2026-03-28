@@ -1,0 +1,58 @@
+{
+  "_comment": "Meridian Design System — Single source of truth for neumorphic tokens. Derived from Themesberg Neumorphism UI Kit Pro.",
+
+  "colors": {
+    "primary":      "#e6e7ee",
+    "secondary":    "#2D4CC8",
+    "success":      "#18634B",
+    "info":         "#0056B3",
+    "warning":      "#F0B400",
+    "danger":       "#A91E2C",
+
+    "surface":      "#e6e7ee",
+    "surfaceDark":  "#D1D9E6",
+    "white":        "#ECF0F3",
+    "black":        "#262833",
+    "dark":         "#31344b",
+    "gray":         "#44476A",
+    "grayMuted":    "#93a5be",
+
+    "textPrimary":  "#31344b",
+    "textSecondary":"#44476A",
+    "textMuted":    "#93a5be",
+
+    "borderLight":  "#D1D9E6",
+
+    "accentBlue":   "#2D4CC8",
+    "accentGreen":  "#18634B",
+    "accentRed":    "#A91E2C",
+    "accentAmber":  "#F0B400"
+  },
+
+  "shadows": {
+    "soft":         "6px 6px 12px #b8b9be, -6px -6px 12px #ffffff",
+    "softSm":       "3px 3px 6px #b8b9be, -3px -3px 6px #ffffff",
+    "inset":        "inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #ffffff",
+    "buttonActive": "inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #ffffff",
+    "darkColor":    "#b8b9be",
+    "lightColor":   "#ffffff"
+  },
+
+  "radii": {
+    "sm":    "0.55rem",
+    "md":    "0.75rem",
+    "lg":    "1rem",
+    "xl":    "1.25rem",
+    "pill":  "9999px"
+  },
+
+  "fonts": {
+    "family": "'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    "familyPyQt": "Nunito Sans",
+    "familyFallback": "Segoe UI"
+  },
+
+  "border": {
+    "light": "1px solid #D1D9E6"
+  }
+}

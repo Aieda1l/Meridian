@@ -25,42 +25,49 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-navy px-4">
+    <div className="min-h-screen flex items-center justify-center bg-neo-surface px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white">Meridian</h1>
-          <p className="text-white/50 mt-1">Admin Dashboard</p>
+          <h1 className="text-3xl font-bold text-neo-dark">Meridian</h1>
+          <p className="text-neo-muted mt-1">Admin Dashboard</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-xl p-6 space-y-4">
-          {error && <div className="bg-red-50 text-danger text-sm p-3 rounded-lg">{error}</div>}
+        <form
+          onSubmit={handleSubmit}
+          className="bg-neo-surface rounded-neo-xl border border-light p-8 space-y-5 shadow-neo"
+        >
+          {error && (
+            <div className="neo-alert neo-alert-danger text-sm">{error}</div>
+          )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <label className="neo-label">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent outline-none"
+              placeholder="admin@team.org"
+              className="neo-input"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label className="neo-label">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent outline-none"
+              placeholder="Password"
+              className="neo-input"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-navy text-white font-semibold rounded-lg hover:bg-opacity-90 disabled:opacity-50 transition"
+            className="neo-btn neo-btn-fill-secondary w-full justify-center py-3"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>

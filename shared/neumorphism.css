@@ -1,0 +1,473 @@
+/*
+ * Meridian Neumorphism Design System
+ * ===================================
+ * Exact replica of Themesberg Neumorphism UI Kit Pro shadow/color system.
+ * Import this in both admin and PWA apps.
+ *
+ * Usage:
+ *   @import '../../shared/neumorphism.css';
+ *   <div class="neo-card">...</div>
+ */
+
+/* ------------------------------------------------------------------ */
+/* Google Font                                                         */
+/* ------------------------------------------------------------------ */
+@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800&display=swap');
+
+/* ------------------------------------------------------------------ */
+/* CSS Custom Properties                                               */
+/* ------------------------------------------------------------------ */
+:root {
+  /* Core palette (from Themesberg) */
+  --neo-primary:       #e6e7ee;
+  --neo-secondary:     #2D4CC8;
+  --neo-success:       #18634B;
+  --neo-info:          #0056B3;
+  --neo-warning:       #F0B400;
+  --neo-danger:        #A91E2C;
+
+  --neo-surface:       #e6e7ee;
+  --neo-surface-dark:  #D1D9E6;
+  --neo-white:         #ECF0F3;
+  --neo-black:         #262833;
+  --neo-dark:          #31344b;
+  --neo-gray:          #44476A;
+  --neo-gray-muted:    #93a5be;
+  --neo-border-light:  #D1D9E6;
+
+  --neo-text:          #31344b;
+  --neo-text-secondary:#44476A;
+  --neo-text-muted:    #93a5be;
+
+  /* Shadows (exact Themesberg values) */
+  --neo-shadow-dark:   #b8b9be;
+  --neo-shadow-light:  #ffffff;
+  --neo-shadow-soft:   6px 6px 12px var(--neo-shadow-dark), -6px -6px 12px var(--neo-shadow-light);
+  --neo-shadow-sm:     3px 3px 6px var(--neo-shadow-dark), -3px -3px 6px var(--neo-shadow-light);
+  --neo-shadow-inset:  inset 2px 2px 5px var(--neo-shadow-dark), inset -3px -3px 7px var(--neo-shadow-light);
+
+  /* Radii */
+  --neo-radius-sm:     0.55rem;
+  --neo-radius-md:     0.75rem;
+  --neo-radius-lg:     1rem;
+  --neo-radius-xl:     1.25rem;
+
+  /* Typography */
+  --neo-font: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+.neo-body {
+  background-color: var(--neo-surface);
+  color: var(--neo-text);
+  font-family: var(--neo-font);
+}
+
+/* ------------------------------------------------------------------ */
+/* Cards                                                               */
+/* ------------------------------------------------------------------ */
+.neo-card {
+  background-color: var(--neo-surface);
+  border: 1px solid var(--neo-border-light);
+  border-radius: var(--neo-radius-lg);
+  box-shadow: var(--neo-shadow-soft);
+  padding: 1.5rem;
+}
+
+.neo-card-sm {
+  background-color: var(--neo-surface);
+  border: 1px solid var(--neo-border-light);
+  border-radius: var(--neo-radius-sm);
+  box-shadow: var(--neo-shadow-sm);
+  padding: 1rem;
+}
+
+.neo-card-inset {
+  background-color: var(--neo-surface);
+  border: 1px solid var(--neo-border-light);
+  border-radius: var(--neo-radius-lg);
+  box-shadow: var(--neo-shadow-inset);
+  padding: 1.5rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Buttons                                                             */
+/* ------------------------------------------------------------------ */
+.neo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-family: var(--neo-font);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--neo-text);
+  background-color: var(--neo-surface);
+  border: 1px solid var(--neo-border-light);
+  border-radius: var(--neo-radius-sm);
+  box-shadow: var(--neo-shadow-sm);
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  user-select: none;
+  line-height: 1.5;
+}
+
+.neo-btn:hover {
+  box-shadow: var(--neo-shadow-soft);
+}
+
+.neo-btn:active,
+.neo-btn.active {
+  box-shadow: var(--neo-shadow-inset);
+}
+
+.neo-btn:disabled {
+  opacity: 0.65;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Colored text variants (neumorphism uses same bg, colored text) */
+.neo-btn-secondary { color: var(--neo-secondary); }
+.neo-btn-success   { color: var(--neo-success); }
+.neo-btn-info      { color: var(--neo-info); }
+.neo-btn-warning   { color: var(--neo-warning); }
+.neo-btn-danger    { color: var(--neo-danger); }
+
+/* Filled variants */
+.neo-btn-fill-secondary {
+  background-color: var(--neo-secondary);
+  color: var(--neo-white);
+  border-color: var(--neo-secondary);
+  box-shadow: 3px 3px 6px var(--neo-shadow-dark), -3px -3px 6px var(--neo-shadow-light);
+}
+.neo-btn-fill-secondary:hover {
+  box-shadow: 6px 6px 12px var(--neo-shadow-dark), -6px -6px 12px var(--neo-shadow-light);
+}
+.neo-btn-fill-secondary:active {
+  box-shadow: var(--neo-shadow-inset);
+}
+
+.neo-btn-fill-success {
+  background-color: var(--neo-success);
+  color: var(--neo-white);
+  border-color: var(--neo-success);
+}
+
+.neo-btn-fill-danger {
+  background-color: var(--neo-danger);
+  color: var(--neo-white);
+  border-color: var(--neo-danger);
+}
+
+/* Pill shape */
+.neo-btn-pill {
+  border-radius: 9999px;
+}
+
+/* Icon-only */
+.neo-btn-icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-radius: 50%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Form Inputs                                                         */
+/* ------------------------------------------------------------------ */
+.neo-input {
+  display: block;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  font-family: var(--neo-font);
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--neo-text);
+  background-color: var(--neo-surface);
+  border: 0.0625rem solid var(--neo-border-light);
+  border-radius: var(--neo-radius-sm);
+  box-shadow: var(--neo-shadow-inset);
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  outline: none;
+}
+
+.neo-input:focus {
+  border-color: var(--neo-secondary);
+  box-shadow: var(--neo-shadow-inset), 0 0 0 0.0625rem rgba(45, 76, 200, 0.25);
+}
+
+.neo-input::placeholder {
+  color: var(--neo-gray-muted);
+}
+
+/* Select */
+.neo-select {
+  display: block;
+  width: 100%;
+  padding: 0.625rem 2.5rem 0.625rem 1rem;
+  font-family: var(--neo-font);
+  font-size: 0.875rem;
+  color: var(--neo-text);
+  background-color: var(--neo-surface);
+  border: 0.0625rem solid var(--neo-border-light);
+  border-radius: var(--neo-radius-sm);
+  box-shadow: var(--neo-shadow-inset);
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2344476A' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 12px;
+}
+
+/* Label */
+.neo-label {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--neo-text-secondary);
+  font-family: var(--neo-font);
+}
+
+/* ------------------------------------------------------------------ */
+/* Input group (icon + input)                                          */
+/* ------------------------------------------------------------------ */
+.neo-input-group {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.neo-input-group .neo-input-icon {
+  position: absolute;
+  left: 0.875rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--neo-gray-muted);
+  font-size: 0.875rem;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.neo-input-group .neo-input {
+  padding-left: 2.5rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sidebar / Nav                                                       */
+/* ------------------------------------------------------------------ */
+.neo-sidebar {
+  background-color: var(--neo-surface);
+  border-right: 1px solid var(--neo-border-light);
+  box-shadow: 3px 0 6px var(--neo-shadow-dark);
+}
+
+.neo-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--neo-text-secondary);
+  border-radius: var(--neo-radius-sm);
+  transition: all 0.15s ease-in-out;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.neo-nav-item:hover {
+  background-color: var(--neo-surface-dark);
+  color: var(--neo-text);
+}
+
+.neo-nav-item.active {
+  background-color: var(--neo-surface);
+  box-shadow: var(--neo-shadow-inset);
+  color: var(--neo-secondary);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tables                                                              */
+/* ------------------------------------------------------------------ */
+.neo-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+}
+
+.neo-table thead th {
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--neo-text-muted);
+  border-bottom: 1px solid var(--neo-border-light);
+  text-align: left;
+}
+
+.neo-table tbody td {
+  padding: 0.75rem 1rem;
+  color: var(--neo-text);
+  border-bottom: 1px solid var(--neo-border-light);
+}
+
+.neo-table tbody tr:hover td {
+  background-color: rgba(209, 217, 230, 0.3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Badges / Pills                                                      */
+/* ------------------------------------------------------------------ */
+.neo-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  line-height: 1.4;
+}
+
+.neo-badge-soft {
+  background-color: var(--neo-surface);
+  box-shadow: var(--neo-shadow-sm);
+  border: 1px solid var(--neo-border-light);
+  color: var(--neo-text-secondary);
+}
+
+.neo-badge-success {
+  background-color: #d4edda;
+  color: var(--neo-success);
+}
+
+.neo-badge-danger {
+  background-color: #f5c6cb;
+  color: var(--neo-danger);
+}
+
+.neo-badge-warning {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.neo-badge-info {
+  background-color: #d1ecf1;
+  color: var(--neo-info);
+}
+
+/* ------------------------------------------------------------------ */
+/* Progress Bars                                                       */
+/* ------------------------------------------------------------------ */
+.neo-progress {
+  height: 0.6rem;
+  background-color: var(--neo-surface);
+  border: 0.0625rem solid var(--neo-border-light);
+  border-radius: var(--neo-radius-sm);
+  box-shadow: var(--neo-shadow-inset);
+  overflow: hidden;
+}
+
+.neo-progress-bar {
+  height: 100%;
+  border-radius: var(--neo-radius-sm);
+  transition: width 0.6s ease;
+}
+
+/* ------------------------------------------------------------------ */
+/* Modals                                                              */
+/* ------------------------------------------------------------------ */
+.neo-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(38, 40, 51, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.neo-modal {
+  background-color: var(--neo-surface);
+  border: 1px solid var(--neo-border-light);
+  border-radius: var(--neo-radius-xl);
+  box-shadow: var(--neo-shadow-soft);
+  padding: 2rem;
+  max-width: 32rem;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------------ */
+/* Alerts                                                              */
+/* ------------------------------------------------------------------ */
+.neo-alert {
+  padding: 1rem 1.25rem;
+  border-radius: var(--neo-radius-sm);
+  border: 1px solid var(--neo-border-light);
+  font-size: 0.875rem;
+}
+
+.neo-alert-inset {
+  box-shadow: var(--neo-shadow-inset);
+}
+
+.neo-alert-danger {
+  background-color: #f5c6cb;
+  color: var(--neo-danger);
+  border-color: #f5c6cb;
+}
+
+.neo-alert-success {
+  background-color: #d4edda;
+  color: var(--neo-success);
+  border-color: #d4edda;
+}
+
+/* ------------------------------------------------------------------ */
+/* Utility classes                                                     */
+/* ------------------------------------------------------------------ */
+.neo-shadow-soft  { box-shadow: var(--neo-shadow-soft) !important; }
+.neo-shadow-sm    { box-shadow: var(--neo-shadow-sm) !important; }
+.neo-shadow-inset { box-shadow: var(--neo-shadow-inset) !important; }
+.neo-shadow-none  { box-shadow: none !important; }
+
+.neo-border       { border: 1px solid var(--neo-border-light); }
+.neo-rounded-sm   { border-radius: var(--neo-radius-sm); }
+.neo-rounded-md   { border-radius: var(--neo-radius-md); }
+.neo-rounded-lg   { border-radius: var(--neo-radius-lg); }
+.neo-rounded-xl   { border-radius: var(--neo-radius-xl); }
+
+.neo-text-primary   { color: var(--neo-text); }
+.neo-text-secondary { color: var(--neo-text-secondary); }
+.neo-text-muted     { color: var(--neo-text-muted); }
+.neo-text-accent    { color: var(--neo-secondary); }
+.neo-text-success   { color: var(--neo-success); }
+.neo-text-danger    { color: var(--neo-danger); }
+.neo-text-warning   { color: var(--neo-warning); }
+
+.neo-bg-surface     { background-color: var(--neo-surface); }
+.neo-bg-white       { background-color: var(--neo-white); }
+.neo-bg-dark        { background-color: var(--neo-dark); }
+.neo-bg-secondary   { background-color: var(--neo-secondary); }
+
+/* ------------------------------------------------------------------ */
+/* Animations                                                          */
+/* ------------------------------------------------------------------ */
+@keyframes neo-breathe {
+  0%, 100% { box-shadow: var(--neo-shadow-soft); }
+  50%      { box-shadow: 8px 8px 16px var(--neo-shadow-dark), -8px -8px 16px var(--neo-shadow-light); }
+}
+
+.neo-breathe {
+  animation: neo-breathe 3s ease-in-out infinite;
+}

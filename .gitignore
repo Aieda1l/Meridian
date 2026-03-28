@@ -36,5 +36,8 @@ offline_cache.enc
 *.spec.bak
 MeridianScanner.exe
 
+# Reference / downloaded assets
+Neumorphism UI/
+
 # Claude Code
 .claude/

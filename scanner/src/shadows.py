@@ -1,18 +1,12 @@
 """Neumorphic shadow rendering via QPainter.
 
-Qt only supports ONE QGraphicsEffect per widget, which makes the classic
-dual-shadow neumorphism impossible via QGraphicsDropShadowEffect alone.
+Exact replica of Themesberg Neumorphism UI Kit Pro shadow system:
 
-Instead, we paint the shadows ourselves in paintEvent overrides by drawing
-rounded rectangles with blurred, offset fills — one light (top-left) and
-one dark (bottom-right) — exactly like the CSS:
+    .shadow-soft  { box-shadow: 6px 6px 12px #b8b9be, -6px -6px 12px #fff; }
+    .shadow-inset { box-shadow: inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #fff; }
 
-    box-shadow:  6px  6px 12px <dark_color>,
-                -6px -6px 12px <light_color>;
-
-The color math matches https://github.com/adamgiebl/neumorphism:
-    dark  = colorLuminance(base, -intensity)
-    light = colorLuminance(base, +intensity)
+Qt only supports ONE QGraphicsEffect per widget, so we paint shadows
+ourselves in paintEvent overrides using layered rounded rectangles.
 """
 
 from __future__ import annotations
@@ -22,14 +16,40 @@ from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 
 
 # ---------------------------------------------------------------------------
-# Color math (from neumorphism repo)
+# Design tokens — matching Themesberg Neumorphism UI + shared/design-tokens.json
+# ---------------------------------------------------------------------------
+
+NEO_BASE       = "#e6e7ee"        # --neo-primary / --neo-surface
+NEO_BORDER     = "#D1D9E6"        # --neo-border-light
+NEO_SHADOW_D   = "#b8b9be"        # dark shadow color (exact Themesberg)
+NEO_SHADOW_L   = "#ffffff"        # light shadow color (exact Themesberg)
+
+# Soft / raised: 6px 6px 12px #b8b9be, -6px -6px 12px #fff
+NEO_DISTANCE   = 6                # px offset  (Themesberg uses 6)
+NEO_BLUR       = 12               # px blur    (Themesberg uses 12)
+NEO_RADIUS     = 16               # px corner  (~1rem = 0.55rem-1rem range)
+
+# Small shadow: 3px 3px 6px
+NEO_DISTANCE_SM = 3
+
+# Inset: inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #fff
+NEO_INSET_D_OFFSET = 2
+NEO_INSET_D_BLUR   = 5
+NEO_INSET_L_OFFSET = 3
+NEO_INSET_L_BLUR   = 7
+
+# Legacy aliases (for existing widget code)
+NEO_INTENSITY  = 0.18
+
+
+# ---------------------------------------------------------------------------
+# Color helpers
 # ---------------------------------------------------------------------------
 
 def color_luminance(hex_color: str, lum: float) -> QColor:
     """Shift each RGB channel by ``channel + channel * lum``.
 
-    Positive *lum* brightens, negative darkens.  Matches the JS
-    ``colorLuminance`` utility in the neumorphism project.
+    Positive *lum* brightens, negative darkens.
     """
     c = QColor(hex_color)
     r = max(0, min(255, int(c.red()   + c.red()   * lum)))
@@ -38,15 +58,9 @@ def color_luminance(hex_color: str, lum: float) -> QColor:
     return QColor(r, g, b)
 
 
-# Default neumorphism parameters
-NEO_BASE       = "#E0E5EC"
-NEO_INTENSITY  = 0.18          # ±18 % brightness shift
-NEO_DISTANCE   = 8             # px offset
-NEO_BLUR       = 16            # px blur radius
-NEO_RADIUS     = 20            # px corner radius
-
-DARK_SHADOW  = color_luminance(NEO_BASE, -NEO_INTENSITY)  # ~#B8BEC7
-LIGHT_SHADOW = color_luminance(NEO_BASE, +NEO_INTENSITY)   # ~#FFFFFF
+# Pre-computed shadow colors (exact hex from Themesberg CSS)
+DARK_SHADOW  = QColor(NEO_SHADOW_D)   # #b8b9be
+LIGHT_SHADOW = QColor(NEO_SHADOW_L)   # #ffffff
 
 
 # ---------------------------------------------------------------------------
@@ -63,28 +77,33 @@ def paint_neo_raised(
     base: str = NEO_BASE,
     intensity: float = NEO_INTENSITY,
 ) -> None:
-    """Draw a raised neumorphic surface (two offset rounded rects + fill)."""
-    dark  = color_luminance(base, -intensity)
-    light = color_luminance(base, +intensity)
+    """Draw a raised neumorphic surface.
 
+    Replicates:  box-shadow: 6px 6px 12px #b8b9be, -6px -6px 12px #fff;
+    """
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
 
-    # Dark shadow (bottom-right)
-    dark.setAlpha(110)
+    # Dark shadow (bottom-right) — #b8b9be with alpha
+    dark = QColor(NEO_SHADOW_D)
+    dark.setAlpha(120)
     painter.setBrush(dark)
     shadow_rect = rect.adjusted(distance, distance, distance, distance)
     painter.drawRoundedRect(shadow_rect, radius + 2, radius + 2)
 
-    # Light shadow (top-left)
-    light.setAlpha(180)
+    # Light shadow (top-left) — #ffffff with alpha
+    light = QColor(NEO_SHADOW_L)
+    light.setAlpha(200)
     painter.setBrush(light)
     shadow_rect = rect.adjusted(-distance, -distance, -distance, -distance)
     painter.drawRoundedRect(shadow_rect, radius + 2, radius + 2)
 
     # Base fill on top
     painter.setBrush(QColor(base))
+    # Subtle border matching --neo-border-light
+    painter.setPen(QPen(QColor(NEO_BORDER), 0.5))
     painter.drawRoundedRect(rect, radius, radius)
+    painter.setPen(Qt.PenStyle.NoPen)
 
 
 def paint_neo_inset(
@@ -96,34 +115,42 @@ def paint_neo_inset(
     base: str = NEO_BASE,
     intensity: float = NEO_INTENSITY,
 ) -> None:
-    """Draw an inset / pressed neumorphic surface."""
-    dark  = color_luminance(base, -intensity)
-    light = color_luminance(base, +intensity)
+    """Draw an inset neumorphic surface.
 
+    Replicates:  box-shadow: inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #fff;
+    """
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
 
-    # Base fill first
-    fill_color = color_luminance(base, -0.03)
+    # Base fill first (slightly darker than surface)
+    fill_color = color_luminance(base, -0.02)
     painter.setBrush(fill_color)
     painter.drawRoundedRect(rect, radius, radius)
 
-    # Inner dark shadow (top-left — light comes from top-left so inset darkens there)
-    dark.setAlpha(80)
+    # Inner dark shadow (top-left) — inset 2px 2px 5px #b8b9be
+    dark = QColor(NEO_SHADOW_D)
+    dark.setAlpha(90)
     painter.setBrush(dark)
     inner_dark = rect.adjusted(1, 1, -distance, -distance)
     painter.drawRoundedRect(inner_dark, radius - 1, radius - 1)
 
-    # Inner light highlight (bottom-right)
-    light.setAlpha(140)
+    # Inner light highlight (bottom-right) — inset -3px -3px 7px #fff
+    light = QColor(NEO_SHADOW_L)
+    light.setAlpha(160)
     painter.setBrush(light)
     inner_light = rect.adjusted(distance, distance, -1, -1)
     painter.drawRoundedRect(inner_light, radius - 1, radius - 1)
 
-    # Slightly darker center fill to clean up
+    # Center fill to clean up
     painter.setBrush(fill_color)
     center = rect.adjusted(distance - 1, distance - 1, -(distance - 1), -(distance - 1))
     painter.drawRoundedRect(center, radius - 2, radius - 2)
+
+    # Subtle border
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(QPen(QColor(NEO_BORDER), 0.5))
+    painter.drawRoundedRect(rect, radius, radius)
+    painter.setPen(Qt.PenStyle.NoPen)
 
 
 def paint_neo_pill(
@@ -141,7 +168,8 @@ def paint_neo_pill(
     painter.setPen(Qt.PenStyle.NoPen)
 
     # Subtle dark shadow
-    shadow = QColor(0, 0, 0, 35)
+    shadow = QColor(NEO_SHADOW_D)
+    shadow.setAlpha(60)
     painter.setBrush(shadow)
     painter.drawRoundedRect(rect.adjusted(2, 2, 2, 2), radius, radius)
 

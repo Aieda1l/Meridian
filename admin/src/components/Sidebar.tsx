@@ -13,10 +13,10 @@ export default function Sidebar() {
   const { user, role, logout } = useAuth();
 
   return (
-    <aside className="w-60 bg-navy text-white flex flex-col min-h-screen">
-      <div className="p-5 border-b border-white/10">
-        <h1 className="text-xl font-bold">Meridian</h1>
-        <p className="text-xs text-white/50 mt-0.5">Admin Dashboard</p>
+    <aside className="w-60 neo-sidebar flex flex-col min-h-screen">
+      <div className="p-5 border-b border-light">
+        <h1 className="text-xl font-bold text-neo-dark">Meridian</h1>
+        <p className="text-xs text-neo-muted mt-0.5">Admin Dashboard</p>
       </div>
 
       <nav className="flex-1 py-4 space-y-1 px-3">
@@ -26,9 +26,7 @@ export default function Sidebar() {
             to={item.to}
             end={item.to === '/'}
             className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition ${
-                isActive ? 'bg-white/15 font-semibold' : 'text-white/70 hover:bg-white/5'
-              }`
+              `neo-nav-item ${isActive ? 'active' : ''}`
             }
           >
             <span>{item.icon}</span>
@@ -37,19 +35,19 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="p-4 border-t border-white/10">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-xs font-bold">
+      <div className="p-4 border-t border-light">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center text-xs font-bold text-neo-white shadow-neo-sm">
             {user?.name?.charAt(0).toUpperCase() ?? '?'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{user?.name}</p>
-            <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">{role}</span>
+            <p className="text-sm font-semibold text-neo-dark truncate">{user?.name}</p>
+            <span className="text-[10px] bg-neo-surface-d text-neo-gray px-1.5 py-0.5 rounded-full font-semibold">{role}</span>
           </div>
         </div>
         <button
           onClick={logout}
-          className="w-full text-xs text-white/50 hover:text-white transition py-1"
+          className="neo-btn neo-btn-danger w-full text-xs py-1.5 justify-center"
         >
           Sign Out
         </button>

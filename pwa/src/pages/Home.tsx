@@ -77,24 +77,24 @@ export default function Home() {
 
   return (
     <div className="p-4 space-y-4">
-      <h2 className="text-xl font-bold text-navy">Home</h2>
+      <h2 className="text-xl font-bold text-neo-dark">Home</h2>
 
       {/* Status Card */}
-      <div className={`rounded-2xl p-6 shadow-md ${openSession ? 'bg-success/10 border border-success/30' : 'bg-white'}`}>
+      <div className={`neo-card ${openSession ? 'border-success/30' : ''}`}>
         <div className="text-center">
-          <div className={`inline-block px-4 py-1 rounded-full text-sm font-semibold mb-3 ${openSession ? 'bg-success text-white' : 'bg-gray-200 text-gray-600'}`}>
+          <div className={`inline-block px-4 py-1 rounded-full text-sm font-semibold mb-3 ${openSession ? 'neo-badge-success' : 'neo-badge-soft'}`}>
             {openSession ? 'Checked In' : 'Not Checked In'}
           </div>
 
           {openSession ? (
             <>
-              <p className="text-4xl font-bold text-navy">{elapsed}</p>
-              <p className="text-gray-500 mt-1">
+              <p className="text-4xl font-bold text-neo-dark">{elapsed}</p>
+              <p className="text-neo-muted mt-1">
                 since {new Date(openSession.check_in_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             </>
           ) : (
-            <p className="text-gray-500">Scan your pass at a scanner to check in</p>
+            <p className="text-neo-muted">Scan your pass at a scanner to check in</p>
           )}
         </div>
       </div>
@@ -103,7 +103,7 @@ export default function Home() {
       {openSession && (
         <button
           onClick={() => setShowSelfReport(true)}
-          className="w-full py-3 bg-white border border-gray-200 rounded-xl text-navy font-medium shadow-sm hover:bg-gray-50 transition"
+          className="neo-btn w-full py-3 font-medium"
         >
           Self-Report Checkout
         </button>
@@ -111,35 +111,35 @@ export default function Home() {
 
       {/* Self-report modal */}
       {showSelfReport && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4">
-            <h3 className="text-lg font-bold text-navy">Self-Report Checkout</h3>
-            <p className="text-sm text-gray-500">
+        <div className="neo-modal-overlay p-4">
+          <div className="neo-modal space-y-4">
+            <h3 className="text-lg font-bold text-neo-dark">Self-Report Checkout</h3>
+            <p className="text-sm text-neo-muted">
               Enter the time you left. This will be flagged for admin review.
             </p>
 
             {reportError && (
-              <div className="bg-red-50 text-danger text-sm p-3 rounded-lg">{reportError}</div>
+              <div className="neo-alert-danger text-sm p-3 rounded-neo-sm">{reportError}</div>
             )}
 
             <input
               type="datetime-local"
               value={reportTime}
               onChange={(e) => setReportTime(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-accent"
+              className="neo-input"
             />
 
             <div className="flex gap-3">
               <button
                 onClick={() => setShowSelfReport(false)}
-                className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 font-medium"
+                className="neo-btn flex-1 py-2 font-medium"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSelfReport}
                 disabled={submitting || !reportTime}
-                className="flex-1 py-2 bg-navy text-white rounded-lg font-medium disabled:opacity-50"
+                className="neo-btn neo-btn-fill-secondary flex-1 py-2 font-medium"
               >
                 {submitting ? 'Submitting...' : 'Submit'}
               </button>
