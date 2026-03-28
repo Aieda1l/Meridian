@@ -1,4 +1,13 @@
-"""Custom neumorphic widgets — all depth rendered via QPainter, not QGraphicsEffect."""
+"""Custom neumorphic widgets — all depth rendered via QPainter, not QGraphicsEffect.
+
+Widget              CSS reference
+─────────────────   ───────────────────────────────────
+NeoCard             .neo-card  { border-radius: 1rem; box-shadow: shadow-soft; }
+NeoButton           .neo-btn   { border-radius: 0.55rem; box-shadow: shadow-sm; }
+StatusPill          .neo-badge { border-radius: 9999px; }
+NeoInput            .neo-input { border-radius: 0.55rem; box-shadow: shadow-inset; }
+EventLogWidget      (custom — inset rows with accent bars)
+"""
 
 from __future__ import annotations
 
@@ -28,8 +37,12 @@ from . import styles
 from .shadows import (
     NEO_BASE,
     NEO_DISTANCE,
+    NEO_DISTANCE_SM,
     NEO_INTENSITY,
     NEO_RADIUS,
+    NEO_RADIUS_SM,
+    NEO_RADIUS_LG,
+    NEO_RADIUS_XL,
     paint_neo_inset,
     paint_neo_pill,
     paint_neo_raised,
@@ -38,22 +51,27 @@ from .shadows import (
 
 # ───────────────────────────────────────────────────────────────────────
 # NeoCard — raised neumorphic container
+# CSS: .neo-card { border-radius: var(--neo-radius-lg); /* 1rem = 16px */
+#                  box-shadow: var(--neo-shadow-soft);
+#                  border: 1px solid var(--neo-border-light);
+#                  padding: 1.5rem; }
 # ───────────────────────────────────────────────────────────────────────
 
 class NeoCard(QWidget):
     """A raised neumorphic card drawn entirely via QPainter.
 
     The ``_shadow_spread`` property is animatable for the breathing effect.
+    Default radius = NEO_RADIUS_LG (16px) matching .neo-card CSS.
     """
 
-    def __init__(self, parent: QWidget | None = None, radius: float = NEO_RADIUS) -> None:
+    def __init__(self, parent: QWidget | None = None, radius: float = NEO_RADIUS_LG) -> None:
         super().__init__(parent)
         self._radius = radius
         self._shadow_spread: float = float(NEO_DISTANCE)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-    # Animatable property
+    # Animatable property — drives the breathing animation
     def _get_shadow_spread(self) -> float:
         return self._shadow_spread
 
@@ -76,6 +94,13 @@ class NeoCard(QWidget):
 
 # ───────────────────────────────────────────────────────────────────────
 # NeoButton — raised button with press → inset animation
+# CSS: .neo-btn { border-radius: 0.55rem; /* 8.8px */
+#                 box-shadow: 3px 3px 6px (shadow-sm);
+#                 font-weight: 600; font-size: 0.875rem; /* 14px */
+#                 padding: 0.625rem 1.25rem;
+#                 border: 1px solid var(--neo-border-light); }
+#      .neo-btn:hover { box-shadow: shadow-soft; }
+#      .neo-btn:active { box-shadow: shadow-inset; }
 # ───────────────────────────────────────────────────────────────────────
 
 class NeoButton(QWidget):
@@ -88,7 +113,7 @@ class NeoButton(QWidget):
         self._text = text
         self._icon_text = icon_text      # e.g. an emoji or single char
         self._pressed = False
-        self._radius = 14.0
+        self._radius = NEO_RADIUS_SM     # 0.55rem ≈ 8.8px (exact Themesberg)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(42)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -103,14 +128,16 @@ class NeoButton(QWidget):
                        self.height() - 2 * margin)
 
         if self._pressed:
+            # Active: inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #fff
             paint_neo_inset(p, rect, radius=self._radius)
         else:
-            paint_neo_raised(p, rect, radius=self._radius, distance=6)
+            # Default: 3px 3px 6px #b8b9be, -3px -3px 6px #fff (shadow-sm)
+            paint_neo_raised(p, rect, radius=self._radius, distance=NEO_DISTANCE_SM, blur=6)
 
-        # Text
+        # Text — Nunito Sans, weight 600, 14px (matching .neo-btn CSS)
         p.setPen(QColor(styles.TEXT_PRIMARY))
-        font = QFont("Segoe UI", 11)
-        font.setWeight(QFont.Weight.DemiBold)
+        font = QFont("Nunito Sans", 11)
+        font.setWeight(QFont.Weight.DemiBold)  # weight 600
         p.setFont(font)
 
         if self._icon_text:
@@ -140,6 +167,8 @@ class NeoButton(QWidget):
 
 # ───────────────────────────────────────────────────────────────────────
 # StatusPill — painted colored pill with icon + label
+# CSS: .neo-badge { border-radius: 9999px; font-size: 0.75rem;
+#                   font-weight: 600; }
 # ───────────────────────────────────────────────────────────────────────
 
 _STATE_COLORS = {
@@ -174,9 +203,9 @@ class StatusPill(QWidget):
         p.setBrush(QColor(255, 255, 255, 200))
         p.drawEllipse(int(dot_x) - 3, int(dot_y) - 3, 6, 6)
 
-        # Label text
+        # Label text — Nunito Sans, weight 700, 12px (matching .neo-badge)
         p.setPen(QColor(255, 255, 255))
-        font = QFont("Segoe UI", 9)
+        font = QFont("Nunito Sans", 9)
         font.setWeight(QFont.Weight.Bold)
         p.setFont(font)
         text_rect = rect.adjusted(24, 0, -6, 0)
@@ -208,6 +237,12 @@ class StatusPill(QWidget):
 
 # ───────────────────────────────────────────────────────────────────────
 # NeoInput — inset text field
+# CSS: .neo-input { border-radius: 0.55rem; /* 8.8px */
+#                   box-shadow: inset 2px 2px 5px #b8b9be,
+#                               inset -3px -3px 7px #fff;
+#                   border: 0.0625rem solid #D1D9E6;
+#                   font-size: 0.875rem; font-weight: 400;
+#                   padding: 0.625rem 1rem; }
 # ───────────────────────────────────────────────────────────────────────
 
 class NeoInput(QWidget):
@@ -215,7 +250,7 @@ class NeoInput(QWidget):
 
     def __init__(self, placeholder: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._radius = 12.0
+        self._radius = NEO_RADIUS_SM     # 0.55rem ≈ 8.8px (exact Themesberg)
         self.setFixedHeight(44)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -273,7 +308,7 @@ class _EventRow(QWidget):
         rect = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
 
         # Subtle inset background
-        paint_neo_inset(p, rect, radius=10, distance=2,
+        paint_neo_inset(p, rect, radius=NEO_RADIUS_SM, distance=2,
                         intensity=0.08)
 
         # Left accent bar
@@ -282,9 +317,10 @@ class _EventRow(QWidget):
         bar_rect = QRectF(rect.left() + 3, rect.top() + 6, 4, rect.height() - 12)
         p.drawRoundedRect(bar_rect, 2, 2)
 
-        # Text
+        # Text — Nunito Sans, 14px, weight 300 (body text)
         p.setPen(QColor(styles.TEXT_PRIMARY))
-        font = QFont("Segoe UI", 10)
+        font = QFont("Nunito Sans", 10)
+        font.setWeight(QFont.Weight.Light)
         p.setFont(font)
         text_rect = rect.adjusted(16, 0, -8, 0)
         p.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,

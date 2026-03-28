@@ -14,7 +14,7 @@ function ProtectedLayout() {
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   return (
-    <div className="flex min-h-screen bg-surface">
+    <div className="flex min-h-screen bg-neo-surface">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         <Routes>

@@ -75,7 +75,7 @@ export default function Dashboard() {
             const online = ago !== null && ago < 2;
             return (
               <div key={s.id} className="neo-badge-soft flex items-center gap-2 px-3 py-2 text-sm">
-                <span className={`w-2 h-2 rounded-full ${online ? 'bg-green-600' : 'bg-neo-muted'}`} />
+                <span className={`w-2 h-2 rounded-full ${online ? 'bg-success' : 'bg-neo-muted'}`} />
                 <span className="font-medium text-neo-dark">{s.name}</span>
                 <span className="text-neo-muted text-xs">
                   {ago !== null ? `${ago}m ago` : 'never'}

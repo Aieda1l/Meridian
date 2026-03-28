@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 
 from . import styles
 from .config import ScannerConfig, save_config
-from .shadows import paint_neo_raised, NEO_RADIUS
+from .shadows import paint_neo_raised, NEO_RADIUS, NEO_RADIUS_XL
 from .widgets import NeoButton, NeoInput
 
 
@@ -37,7 +37,7 @@ class AdminLoginDialog(QDialog):
     def paintEvent(self, event: QPaintEvent) -> None:
         p = QPainter(self)
         rect = QRectF(12, 12, self.width() - 24, self.height() - 24)
-        paint_neo_raised(p, rect, radius=24, distance=10)
+        paint_neo_raised(p, rect, radius=NEO_RADIUS_XL, distance=10)
         p.end()
 
     def _build_ui(self) -> None:
@@ -47,7 +47,7 @@ class AdminLoginDialog(QDialog):
 
         title = QLabel("Admin Login")
         title.setStyleSheet(
-            f"font-size: 20px; font-weight: 700; color: {styles.TEXT_PRIMARY}; background: transparent;"
+            f"font-size: 20px; font-weight: 700; color: {styles.TEXT_PRIMARY}; background: transparent; font-family: 'Nunito Sans', 'Segoe UI', sans-serif;"
         )
         root.addWidget(title)
 
@@ -65,7 +65,7 @@ class AdminLoginDialog(QDialog):
         def _label(text: str) -> QLabel:
             lbl = QLabel(text)
             lbl.setStyleSheet(
-                f"font-size: 12px; font-weight: 600; color: {styles.TEXT_SECONDARY}; background: transparent;"
+                f"font-size: 12px; font-weight: 600; color: {styles.TEXT_SECONDARY}; background: transparent; font-family: 'Nunito Sans', 'Segoe UI', sans-serif;"
             )
             return lbl
 
@@ -78,7 +78,7 @@ class AdminLoginDialog(QDialog):
 
         self._error_label = QLabel("")
         self._error_label.setStyleSheet(
-            f"font-size: 11px; color: {styles.ACCENT_RED}; background: transparent;"
+            f"font-size: 11px; color: {styles.ACCENT_RED}; background: transparent; font-family: 'Nunito Sans', 'Segoe UI', sans-serif;"
         )
         self._error_label.setWordWrap(True)
         form.addRow(_label(""), self._error_label)
@@ -146,7 +146,7 @@ class SettingsDialog(QDialog):
     def paintEvent(self, event: QPaintEvent) -> None:
         p = QPainter(self)
         rect = QRectF(12, 12, self.width() - 24, self.height() - 24)
-        paint_neo_raised(p, rect, radius=24, distance=10)
+        paint_neo_raised(p, rect, radius=NEO_RADIUS_XL, distance=10)
         p.end()
 
     def _build_ui(self) -> None:
@@ -155,7 +155,7 @@ class SettingsDialog(QDialog):
         root.setSpacing(16)
 
         title = QLabel("Scanner Settings")
-        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {styles.TEXT_PRIMARY}; background: transparent;")
+        title.setStyleSheet(f"font-size: 22px; font-weight: 700; color: {styles.TEXT_PRIMARY}; background: transparent; font-family: 'Nunito Sans', 'Segoe UI', sans-serif;")
         root.addWidget(title)
 
         subtitle = QLabel("Configure connection and hardware")
@@ -170,7 +170,7 @@ class SettingsDialog(QDialog):
 
         def _label(text: str) -> QLabel:
             lbl = QLabel(text)
-            lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {styles.TEXT_SECONDARY}; background: transparent;")
+            lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {styles.TEXT_SECONDARY}; background: transparent; font-family: 'Nunito Sans', 'Segoe UI', sans-serif;")
             return lbl
 
         self.api_url_input = NeoInput(self.config.api_base_url)
@@ -192,7 +192,7 @@ class SettingsDialog(QDialog):
 
         self.selfie_check = QCheckBox("Enable selfie capture on QR scan")
         self.selfie_check.setChecked(self.config.qr_selfie_enabled)
-        self.selfie_check.setStyleSheet(f"color: {styles.TEXT_PRIMARY}; background: transparent; font-size: 13px;")
+        self.selfie_check.setStyleSheet(f"color: {styles.TEXT_PRIMARY}; background: transparent; font-size: 13px; font-family: 'Nunito Sans', 'Segoe UI', sans-serif;")
         form.addRow(_label(""), self.selfie_check)
 
         root.addLayout(form)

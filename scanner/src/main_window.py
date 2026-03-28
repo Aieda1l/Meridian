@@ -15,6 +15,7 @@ from PyQt6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
     QRectF,
+    QSequentialAnimationGroup,
     QSize,
     Qt,
     QTimer,
@@ -48,6 +49,8 @@ from .shadows import (
     NEO_BASE,
     NEO_DISTANCE,
     NEO_RADIUS,
+    NEO_RADIUS_SM,
+    NEO_RADIUS_LG,
     paint_neo_inset,
     paint_neo_raised,
 )
@@ -70,7 +73,7 @@ class _TopBar(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(0, 0, self.width(), self.height() + 12)
-        paint_neo_raised(p, rect, radius=0, distance=4, intensity=0.06)
+        paint_neo_raised(p, rect, radius=0, distance=4, blur=8)
         p.end()
 
 
@@ -95,7 +98,7 @@ class _WebcamFrame(QWidget):
         p = QPainter(self)
         margin = 6
         rect = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
-        paint_neo_inset(p, rect, radius=14, distance=4)
+        paint_neo_inset(p, rect, radius=NEO_RADIUS_SM, distance=4)
 
         if self._pixmap and not self._pixmap.isNull():
             inner = rect.adjusted(5, 5, -5, -5)
@@ -108,8 +111,9 @@ class _WebcamFrame(QWidget):
             y = inner.top() + (inner.height() - scaled.height()) / 2
             p.drawPixmap(int(x), int(y), scaled)
         else:
-            p.setPen(QColor(styles.TEXT_SECONDARY))
-            font = QFont("Segoe UI", 10)
+            p.setPen(QColor(styles.TEXT_MUTED))
+            font = QFont("Nunito Sans", 10)
+            font.setWeight(QFont.Weight.Light)
             p.setFont(font)
             p.drawText(rect, Qt.AlignmentFlag.AlignCenter, "No webcam feed")
 
@@ -132,7 +136,7 @@ class _BottomTray(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(0, -12, self.width(), self.height() + 12)
-        paint_neo_raised(p, rect, radius=0, distance=4, intensity=0.06)
+        paint_neo_raised(p, rect, radius=0, distance=4, blur=8)
         p.end()
 
 
@@ -241,14 +245,29 @@ class MainWindow(QWidget):
         self._idle_sub.setStyleSheet(styles.FONT_SUBHEAD)
         idle_inner.addWidget(self._idle_sub)
 
-        # Breathing shadow animation
-        self._breath_anim = QPropertyAnimation(idle_card, b"shadow_spread", self)
-        self._breath_anim.setDuration(3000)
-        self._breath_anim.setStartValue(6.0)
-        self._breath_anim.setEndValue(14.0)
-        self._breath_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
-        self._breath_anim.setLoopCount(-1)
-        self._breath_anim.start()
+        # Breathing shadow animation — matches CSS neo-breathe:
+        #   0%,100% { box-shadow: 6px 6px 12px }  (shadow_spread = 6)
+        #   50%     { box-shadow: 8px 8px 16px }  (shadow_spread = 10)
+        # Uses sequential group (forward + reverse) for smooth ping-pong.
+        self._idle_card = idle_card
+
+        fwd = QPropertyAnimation(idle_card, b"shadow_spread", idle_card)
+        fwd.setDuration(1500)                         # half of 3s cycle
+        fwd.setStartValue(6.0)
+        fwd.setEndValue(10.0)
+        fwd.setEasingCurve(QEasingCurve.Type.InOutSine)
+
+        rev = QPropertyAnimation(idle_card, b"shadow_spread", idle_card)
+        rev.setDuration(1500)
+        rev.setStartValue(10.0)
+        rev.setEndValue(6.0)
+        rev.setEasingCurve(QEasingCurve.Type.InOutSine)
+
+        self._breath_group = QSequentialAnimationGroup(idle_card)
+        self._breath_group.addAnimation(fwd)
+        self._breath_group.addAnimation(rev)
+        self._breath_group.setLoopCount(-1)            # infinite
+        self._breath_group.start()
 
         self._stack.addWidget(idle_card)
 
@@ -293,7 +312,7 @@ class MainWindow(QWidget):
         self._error_msg = QLabel("")
         self._error_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._error_msg.setWordWrap(True)
-        self._error_msg.setStyleSheet(f"font-size: 20px; font-weight: 600; color: {styles.ACCENT_RED}; background: transparent;")
+        self._error_msg.setStyleSheet(f"font-size: 20px; font-weight: 600; color: {styles.ACCENT_RED}; background: transparent; font-family: 'Nunito Sans', 'Segoe UI', sans-serif;")
         error_inner.addWidget(self._error_msg)
 
         self._stack.addWidget(error_card)

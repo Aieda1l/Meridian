@@ -3,7 +3,9 @@
 Exact replica of Themesberg Neumorphism UI Kit Pro shadow system:
 
     .shadow-soft  { box-shadow: 6px 6px 12px #b8b9be, -6px -6px 12px #fff; }
+    .shadow-sm    { box-shadow: 3px 3px 6px #b8b9be, -3px -3px 6px #fff; }
     .shadow-inset { box-shadow: inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #fff; }
+    .border-light { border: 1px solid #D1D9E6; }
 
 Qt only supports ONE QGraphicsEffect per widget, so we paint shadows
 ourselves in paintEvent overrides using layered rounded rectangles.
@@ -27,7 +29,13 @@ NEO_SHADOW_L   = "#ffffff"        # light shadow color (exact Themesberg)
 # Soft / raised: 6px 6px 12px #b8b9be, -6px -6px 12px #fff
 NEO_DISTANCE   = 6                # px offset  (Themesberg uses 6)
 NEO_BLUR       = 12               # px blur    (Themesberg uses 12)
-NEO_RADIUS     = 16               # px corner  (~1rem = 0.55rem-1rem range)
+
+# Border radius tokens (from Themesberg CSS)
+NEO_RADIUS_SM  = 8.8              # 0.55rem ≈ 8.8px — .card, .btn, .form-control
+NEO_RADIUS_MD  = 12.0             # 0.75rem ≈ 12px
+NEO_RADIUS_LG  = 16.0             # 1rem ≈ 16px  — .neo-card
+NEO_RADIUS_XL  = 20.0             # 1.25rem ≈ 20px — .neo-modal
+NEO_RADIUS     = NEO_RADIUS_SM    # default radius = .55rem (standard Themesberg)
 
 # Small shadow: 3px 3px 6px
 NEO_DISTANCE_SM = 3
@@ -80,28 +88,53 @@ def paint_neo_raised(
     """Draw a raised neumorphic surface.
 
     Replicates:  box-shadow: 6px 6px 12px #b8b9be, -6px -6px 12px #fff;
+                 border: 1px solid #D1D9E6;
+
+    Uses 4-layer graduated rendering per shadow direction to approximate
+    the CSS Gaussian blur spread.
     """
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
 
-    # Dark shadow (bottom-right) — #b8b9be with alpha
-    dark = QColor(NEO_SHADOW_D)
-    dark.setAlpha(120)
-    painter.setBrush(dark)
-    shadow_rect = rect.adjusted(distance, distance, distance, distance)
-    painter.drawRoundedRect(shadow_rect, radius + 2, radius + 2)
+    layers = 4  # number of graduated layers per shadow
 
-    # Light shadow (top-left) — #ffffff with alpha
-    light = QColor(NEO_SHADOW_L)
-    light.setAlpha(200)
-    painter.setBrush(light)
-    shadow_rect = rect.adjusted(-distance, -distance, -distance, -distance)
-    painter.drawRoundedRect(shadow_rect, radius + 2, radius + 2)
+    # --- Dark shadow (bottom-right) — #b8b9be ---
+    for i in range(layers):
+        frac = (i + 1) / layers
+        dark = QColor(NEO_SHADOW_D)
+        # Fade alpha from outer (low) to inner (higher)
+        dark.setAlpha(int(25 + 65 * frac))
+        painter.setBrush(dark)
+        offset = distance * frac
+        spread = (blur - distance) * (1 - frac * 0.7)
+        shadow_rect = rect.adjusted(
+            offset - spread * 0.3,
+            offset - spread * 0.3,
+            offset + spread * 0.3,
+            offset + spread * 0.3,
+        )
+        painter.drawRoundedRect(shadow_rect, radius + 2, radius + 2)
 
-    # Base fill on top
+    # --- Light shadow (top-left) — #ffffff ---
+    for i in range(layers):
+        frac = (i + 1) / layers
+        light = QColor(NEO_SHADOW_L)
+        light.setAlpha(int(40 + 120 * frac))
+        painter.setBrush(light)
+        offset = distance * frac
+        spread = (blur - distance) * (1 - frac * 0.7)
+        shadow_rect = rect.adjusted(
+            -offset - spread * 0.3,
+            -offset - spread * 0.3,
+            -offset + spread * 0.3,
+            -offset + spread * 0.3,
+        )
+        painter.drawRoundedRect(shadow_rect, radius + 2, radius + 2)
+
+    # --- Base fill on top ---
     painter.setBrush(QColor(base))
-    # Subtle border matching --neo-border-light
-    painter.setPen(QPen(QColor(NEO_BORDER), 0.5))
+    # 1px solid #D1D9E6 border (exact Themesberg .border-light)
+    painter.setPen(QPen(QColor(NEO_BORDER), 1.0))
     painter.drawRoundedRect(rect, radius, radius)
     painter.setPen(Qt.PenStyle.NoPen)
 
@@ -118,37 +151,48 @@ def paint_neo_inset(
     """Draw an inset neumorphic surface.
 
     Replicates:  box-shadow: inset 2px 2px 5px #b8b9be, inset -3px -3px 7px #fff;
+                 border: 1px solid #D1D9E6;
     """
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
 
-    # Base fill first (slightly darker than surface)
+    # Base fill first (slightly darker than surface to look recessed)
     fill_color = color_luminance(base, -0.02)
     painter.setBrush(fill_color)
     painter.drawRoundedRect(rect, radius, radius)
 
     # Inner dark shadow (top-left) — inset 2px 2px 5px #b8b9be
-    dark = QColor(NEO_SHADOW_D)
-    dark.setAlpha(90)
-    painter.setBrush(dark)
-    inner_dark = rect.adjusted(1, 1, -distance, -distance)
-    painter.drawRoundedRect(inner_dark, radius - 1, radius - 1)
+    # Multi-layer for smoother blur approximation
+    for i in range(3):
+        frac = (i + 1) / 3
+        dark = QColor(NEO_SHADOW_D)
+        dark.setAlpha(int(30 + 50 * frac))
+        painter.setBrush(dark)
+        d_off = NEO_INSET_D_OFFSET * frac
+        d_spr = NEO_INSET_D_BLUR * (1 - frac * 0.5)
+        inner_dark = rect.adjusted(d_off, d_off, -d_spr * 0.5, -d_spr * 0.5)
+        painter.drawRoundedRect(inner_dark, radius - 1, radius - 1)
 
     # Inner light highlight (bottom-right) — inset -3px -3px 7px #fff
-    light = QColor(NEO_SHADOW_L)
-    light.setAlpha(160)
-    painter.setBrush(light)
-    inner_light = rect.adjusted(distance, distance, -1, -1)
-    painter.drawRoundedRect(inner_light, radius - 1, radius - 1)
+    for i in range(3):
+        frac = (i + 1) / 3
+        light = QColor(NEO_SHADOW_L)
+        light.setAlpha(int(40 + 90 * frac))
+        painter.setBrush(light)
+        l_off = NEO_INSET_L_OFFSET * frac
+        l_spr = NEO_INSET_L_BLUR * (1 - frac * 0.5)
+        inner_light = rect.adjusted(l_spr * 0.5, l_spr * 0.5, -l_off, -l_off)
+        painter.drawRoundedRect(inner_light, radius - 1, radius - 1)
 
-    # Center fill to clean up
+    # Center fill to clean up overlap
     painter.setBrush(fill_color)
-    center = rect.adjusted(distance - 1, distance - 1, -(distance - 1), -(distance - 1))
-    painter.drawRoundedRect(center, radius - 2, radius - 2)
+    inset = max(NEO_INSET_D_OFFSET, NEO_INSET_L_OFFSET) + 1
+    center = rect.adjusted(inset, inset, -inset, -inset)
+    painter.drawRoundedRect(center, max(radius - 2, 2), max(radius - 2, 2))
 
-    # Subtle border
+    # 1px solid #D1D9E6 border (exact Themesberg)
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.setPen(QPen(QColor(NEO_BORDER), 0.5))
+    painter.setPen(QPen(QColor(NEO_BORDER), 1.0))
     painter.drawRoundedRect(rect, radius, radius)
     painter.setPen(Qt.PenStyle.NoPen)
 
@@ -167,11 +211,17 @@ def paint_neo_pill(
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
 
-    # Subtle dark shadow
+    # Subtle dark shadow (3px 3px 6px — shadow-sm style)
     shadow = QColor(NEO_SHADOW_D)
     shadow.setAlpha(60)
     painter.setBrush(shadow)
     painter.drawRoundedRect(rect.adjusted(2, 2, 2, 2), radius, radius)
+
+    # Light shadow
+    light = QColor(NEO_SHADOW_L)
+    light.setAlpha(80)
+    painter.setBrush(light)
+    painter.drawRoundedRect(rect.adjusted(-1, -1, -1, -1), radius, radius)
 
     # Fill
     painter.setBrush(fill_color)
