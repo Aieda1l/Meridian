@@ -88,7 +88,7 @@ class NeoCard(QWidget):
                          self.width() - 2 * margin,
                          self.height() - 2 * margin)
         paint_neo_raised(p, content, radius=self._radius,
-                         distance=int(self._shadow_spread))
+                         distance=self._shadow_spread, blur=self._shadow_spread + 2.0)
         p.end()
 
 
@@ -193,22 +193,24 @@ class StatusPill(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         p = QPainter(self)
-        rect = QRectF(2, 2, self.width() - 4, self.height() - 4)
-        paint_neo_pill(p, rect, self._color)
+        margin = 4
+        rect = QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin)
+        # 3D Neumorphism style instead of flat colored fill
+        paint_neo_raised(p, rect, radius=rect.height() / 2, distance=3.0, blur=6.0)
 
-        # Dot indicator
-        dot_x = rect.left() + 12
+        # Dot indicator using the state color
+        dot_x = rect.left() + 14
         dot_y = rect.center().y()
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(255, 255, 255, 200))
+        p.setBrush(self._color)
         p.drawEllipse(int(dot_x) - 3, int(dot_y) - 3, 6, 6)
 
-        # Label text — Nunito Sans, weight 700, 12px (matching .neo-badge)
-        p.setPen(QColor(255, 255, 255))
+        # Label text using the state color for clarity against the surface background
+        p.setPen(self._color)
         font = QFont("Nunito Sans", 9)
         font.setWeight(QFont.Weight.Bold)
         p.setFont(font)
-        text_rect = rect.adjusted(24, 0, -6, 0)
+        text_rect = rect.adjusted(24, 0, -8, 0)
         p.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._label)
 
         p.end()
@@ -282,7 +284,8 @@ class NeoInput(QWidget):
         p = QPainter(self)
         margin = NEO_DISTANCE
         rect = QRectF(margin, 2, self.width() - 2 * margin, self.height() - 4)
-        paint_neo_inset(p, rect, radius=self._radius, distance=3)
+        # Deeply sunk in per Neumorphism UI Pro 
+        paint_neo_inset(p, rect, radius=self._radius, distance=4.5, blur=9.0)
         p.end()
 
 

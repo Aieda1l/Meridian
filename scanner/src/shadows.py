@@ -80,8 +80,8 @@ def paint_neo_raised(
     rect: QRectF,
     *,
     radius: float = NEO_RADIUS,
-    distance: int = NEO_DISTANCE,
-    blur: int = NEO_BLUR,
+    distance: float = NEO_DISTANCE,
+    blur: float = NEO_BLUR,
     base: str = NEO_BASE,
     intensity: float = NEO_INTENSITY,
 ) -> None:
@@ -144,7 +144,8 @@ def paint_neo_inset(
     rect: QRectF,
     *,
     radius: float = NEO_RADIUS,
-    distance: int = 4,
+    distance: float = 4.0,
+    blur: float = 8.0,
     base: str = NEO_BASE,
     intensity: float = NEO_INTENSITY,
 ) -> None:
@@ -161,34 +162,34 @@ def paint_neo_inset(
     painter.setBrush(fill_color)
     painter.drawRoundedRect(rect, radius, radius)
 
-    # Inner dark shadow (top-left) — inset 2px 2px 5px #b8b9be
-    # Multi-layer for smoother blur approximation
+    # Inner dark shadow (top-left)
     for i in range(3):
         frac = (i + 1) / 3
         dark = QColor(NEO_SHADOW_D)
-        dark.setAlpha(int(30 + 50 * frac))
+        # Higher alpha to make it look truly "sunk in"
+        dark.setAlpha(int(50 + 70 * frac))
         painter.setBrush(dark)
-        d_off = NEO_INSET_D_OFFSET * frac
-        d_spr = NEO_INSET_D_BLUR * (1 - frac * 0.5)
+        d_off = (distance * 0.7) * frac
+        d_spr = blur * (1 - frac * 0.5)
         inner_dark = rect.adjusted(d_off, d_off, -d_spr * 0.5, -d_spr * 0.5)
         painter.drawRoundedRect(inner_dark, radius - 1, radius - 1)
 
-    # Inner light highlight (bottom-right) — inset -3px -3px 7px #fff
+    # Inner light highlight (bottom-right)
     for i in range(3):
         frac = (i + 1) / 3
         light = QColor(NEO_SHADOW_L)
-        light.setAlpha(int(40 + 90 * frac))
+        light.setAlpha(int(60 + 100 * frac))
         painter.setBrush(light)
-        l_off = NEO_INSET_L_OFFSET * frac
-        l_spr = NEO_INSET_L_BLUR * (1 - frac * 0.5)
+        l_off = distance * frac
+        l_spr = blur * (1 - frac * 0.5)
         inner_light = rect.adjusted(l_spr * 0.5, l_spr * 0.5, -l_off, -l_off)
         painter.drawRoundedRect(inner_light, radius - 1, radius - 1)
 
     # Center fill to clean up overlap
     painter.setBrush(fill_color)
-    inset = max(NEO_INSET_D_OFFSET, NEO_INSET_L_OFFSET) + 1
+    inset = distance + 1
     center = rect.adjusted(inset, inset, -inset, -inset)
-    painter.drawRoundedRect(center, max(radius - 2, 2), max(radius - 2, 2))
+    painter.drawRoundedRect(center, max(radius - 2, 2.0), max(radius - 2, 2.0))
 
     # 1px solid #D1D9E6 border (exact Themesberg)
     painter.setBrush(Qt.BrushStyle.NoBrush)

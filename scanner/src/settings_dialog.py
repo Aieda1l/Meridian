@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtCore import QRectF, Qt, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QColor, QFont, QPainter, QPaintEvent
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -33,6 +33,16 @@ class AdminLoginDialog(QDialog):
         self.setStyleSheet(styles.GLOBAL_STYLE)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._build_ui()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.setWindowOpacity(0.0)
+        self._anim = QPropertyAnimation(self, b"windowOpacity", self)
+        self._anim.setDuration(300)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.start()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         p = QPainter(self)
@@ -142,6 +152,16 @@ class SettingsDialog(QDialog):
         self.setStyleSheet(styles.GLOBAL_STYLE)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._build_ui()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.setWindowOpacity(0.0)
+        self._anim = QPropertyAnimation(self, b"windowOpacity", self)
+        self._anim.setDuration(300)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.start()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         p = QPainter(self)
