@@ -23,6 +23,7 @@ class ScannerConfig:
     qr_selfie_enabled: bool = True
     webcam_index: int = 0
     offline_cache_path: str = "./offline_cache.enc"
+    debug: bool = False
 
 
 _CONFIG_PATH = os.path.join(_config_dir(), "config.json")

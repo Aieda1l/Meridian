@@ -51,9 +51,11 @@ from .shadows import (
     NEO_RADIUS,
     NEO_RADIUS_SM,
     NEO_RADIUS_LG,
+    NEO_RADIUS_XL,
     paint_neo_inset,
     paint_neo_raised,
 )
+from .simulator_dialog import SimulatorDialog
 from .widgets import EventLogWidget, NeoButton, NeoCard, StatusPill
 
 
@@ -200,6 +202,13 @@ class MainWindow(QWidget):
             lay.addWidget(pill)
 
         lay.addSpacing(8)
+
+        # Simulator button (debug mode only)
+        if self.config.debug:
+            sim_btn = NeoButton(text="SIM")
+            sim_btn.setFixedSize(64, 48)
+            sim_btn.clicked.connect(self._open_simulator)
+            lay.addWidget(sim_btn)
 
         # Settings button
         settings_btn = NeoButton(icon_text="\u2699\uFE0F")
@@ -496,6 +505,25 @@ class MainWindow(QWidget):
             self.pill_queue.set_error(f"Queue: {count}")
         else:
             self.pill_queue.set_active("Queue: 0")
+
+    # ================================================================= Simulator (debug only)
+
+    def _open_simulator(self) -> None:
+        """Open the scan simulator dialog (debug mode)."""
+        dlg = SimulatorDialog(self.api, self)
+        dlg.scan_requested.connect(self._on_simulated_scan)
+        dlg.exec()
+
+    def _on_simulated_scan(self, serial: str, method: str) -> None:
+        """Handle a simulated scan from the dialog."""
+        self._event_log.add_event(f"\U0001F9EA  SIM: {method} scan for {serial[:8]}…", success=True)
+        self._do_scan(
+            serial=serial,
+            method=method,
+            nfc_payload=f"meridian://scan?serial={serial}&payload=SIM" if method == "nfc" else None,
+            totp_code="000000" if method == "qr" else None,
+            selfie_b64=None,
+        )
 
     # ================================================================= Settings (PIN-locked)
 
