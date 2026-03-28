@@ -1,7 +1,8 @@
 {
   "scanner_id": "MAIN_ENTRANCE",
-  "api_base_url": "https://your-app.railway.app",
-  "api_key": "",
+  "api_base_url": "http://localhost:8000",
+  "api_key": "12345",
+  "debug": true,
   "qr_selfie_enabled": true,
   "webcam_index": 0,
   "offline_cache_path": "./offline_cache.enc"

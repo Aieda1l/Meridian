@@ -16,7 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Enable pgcrypto extension for encryption and uuid_generate_v4()
+    # Enable pgcrypto extension for encryption and gen_random_uuid()
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
 
     # Create enum types
@@ -43,7 +43,7 @@ def upgrade() -> None:
     # --- seasons ---
     op.create_table(
         "seasons",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("uuid_generate_v4()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("start_date", sa.Date(), nullable=False),
         sa.Column("end_date", sa.Date(), nullable=False),
@@ -67,7 +67,7 @@ def upgrade() -> None:
     # --- members ---
     op.create_table(
         "members",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("uuid_generate_v4()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("member_number", sa.String(12), nullable=False),
         sa.Column("name_encrypted", sa.LargeBinary(), nullable=True),
         sa.Column("email_encrypted", sa.LargeBinary(), nullable=True),
@@ -109,7 +109,7 @@ def upgrade() -> None:
     # --- sessions ---
     op.create_table(
         "sessions",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("uuid_generate_v4()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("member_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("members.id"), nullable=False),
         sa.Column("season_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("seasons.id"), nullable=False),
         sa.Column("scanner_id", sa.String(), sa.ForeignKey("scanners.id"), nullable=True),
@@ -142,7 +142,7 @@ def upgrade() -> None:
     # --- hour_warnings ---
     op.create_table(
         "hour_warnings",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("uuid_generate_v4()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("member_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("members.id"), nullable=False),
         sa.Column("season_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("seasons.id"), nullable=False),
         sa.Column("warning_type", warning_type, nullable=False),
@@ -158,7 +158,7 @@ def upgrade() -> None:
     # --- admin_events (audit log — never delete rows) ---
     op.create_table(
         "admin_events",
-        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("uuid_generate_v4()"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("actor_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("members.id"), nullable=True),
         sa.Column("event_type", sa.String(), nullable=False),
         sa.Column("target_id", postgresql.UUID(as_uuid=True), nullable=True),

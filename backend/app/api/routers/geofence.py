@@ -33,7 +33,7 @@ GRACE_KEY_PREFIX = "geofence_grace:"
 
 def _build_shop_polygon() -> Polygon:
     """Build a Shapely Polygon from the configured geofence coordinates."""
-    coords = [(pt["lng"], pt["lat"]) for pt in settings.GEOFENCE_POLYGON]
+    coords = [(pt["lng"], pt["lat"]) for pt in settings.geofence_polygon_list]
     return Polygon(coords)
 
 
@@ -165,7 +165,7 @@ async def geofence_config(
 ):
     """Return the shop polygon and grace period configuration for the PWA."""
     return GeofenceConfigResponse(
-        polygon=settings.GEOFENCE_POLYGON,
+        polygon=settings.geofence_polygon_list,
         grace_period_seconds=settings.GEOFENCE_GRACE_PERIOD_SECONDS,
         buffer_meters=settings.GEOFENCE_BUFFER_METERS,
     )

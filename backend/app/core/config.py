@@ -65,13 +65,15 @@ class Settings(BaseSettings):
     GOOGLE_WALLET_ISSUER_ID: str = ""
 
     # ── CORS ─────────────────────────────────────────────────────────────
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    # Stored as a raw string so pydantic-settings doesn't try to JSON-parse
+    # the comma-separated value from .env before the validator runs.
+    CORS_ORIGINS: str = "http://localhost:3000"
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
-    def _parse_cors_origins(cls, v: Any) -> list[str]:
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+    def _parse_cors_origins(cls, v: Any) -> str:
+        if isinstance(v, list):
+            return ",".join(v)
         return v
 
     # ── Team branding (optional) ────────────────────────────────────────
@@ -83,19 +85,29 @@ class Settings(BaseSettings):
     CRON_SECRET: str = ""
 
     # ── Geofence ────────────────────────────────────────────────────────
-    GEOFENCE_POLYGON: list[dict[str, float]] = []
+    GEOFENCE_POLYGON: str = ""
 
     @field_validator("GEOFENCE_POLYGON", mode="before")
     @classmethod
-    def _parse_geofence_polygon(cls, v: Any) -> list[dict[str, float]]:
-        if isinstance(v, str):
-            if not v.strip():
-                return []
-            return json.loads(v)
+    def _parse_geofence_polygon(cls, v: Any) -> str:
+        if isinstance(v, list):
+            return json.dumps(v)
         return v
 
     GEOFENCE_BUFFER_METERS: int = 150
     GEOFENCE_GRACE_PERIOD_SECONDS: int = 90
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """CORS_ORIGINS as a list of strings."""
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def geofence_polygon_list(self) -> list[dict[str, float]]:
+        """GEOFENCE_POLYGON as a parsed list of {lat, lng} dicts."""
+        if not self.GEOFENCE_POLYGON.strip():
+            return []
+        return json.loads(self.GEOFENCE_POLYGON)
 
 
 # Singleton – import this from anywhere.
