@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -18,6 +17,7 @@ from PyQt6.QtWidgets import (
 from . import styles
 from .config import ScannerConfig, save_config
 from .shadows import paint_neo_raised, NEO_RADIUS, NEO_RADIUS_XL
+from .neo_alert import NeoAlertPopup
 from .widgets import NeoButton, NeoInput
 
 
@@ -245,10 +245,10 @@ class SettingsDialog(QDialog):
         self.api_client.base_url = self.api_url_input.text().rstrip("/")
         self.api_client.headers["X-Scanner-Key"] = self.api_key_input.text()
         ok = self.api_client.test_connection()
-        QMessageBox.information(
-            self, "Connection Test",
-            "Connected successfully!" if ok else "Connection failed. Check URL and API key.",
-        )
+        if ok:
+            NeoAlertPopup.success(self, "Connected successfully!")
+        else:
+            NeoAlertPopup.error(self, "Connection failed. Check URL and API key.")
 
     def _save(self) -> None:
         self.config.api_base_url = self.api_url_input.text()

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { apiFetch } from '../api/client';
 
 interface Hours {
@@ -35,11 +36,14 @@ function ProgressBar({ label, value, cap }: { label: string; value: number; cap:
 
 export default function Status() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [hours, setHours] = useState<Hours | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    apiFetch<Hours>(`/members/${user.id}/hours`).then(setHours).catch(() => {});
+    apiFetch<Hours>(`/members/${user.id}/hours`)
+      .then(setHours)
+      .catch(() => toast.error('Failed to load hours'));
   }, [user]);
 
   if (!hours) {

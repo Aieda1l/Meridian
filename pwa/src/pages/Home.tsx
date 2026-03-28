@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { useGeofence } from '../hooks/useGeofence';
 import { apiFetch } from '../api/client';
 
@@ -11,11 +12,11 @@ interface Session {
 
 export default function Home() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [openSession, setOpenSession] = useState<Session | null>(null);
   const [elapsed, setElapsed] = useState('0:00');
   const [showSelfReport, setShowSelfReport] = useState(false);
   const [reportTime, setReportTime] = useState('');
-  const [reportError, setReportError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useGeofence(!!openSession, user?.id ?? '');
@@ -58,7 +59,6 @@ export default function Home() {
 
   const handleSelfReport = async () => {
     if (!openSession || !reportTime) return;
-    setReportError('');
     setSubmitting(true);
     try {
       await apiFetch(`/sessions/${openSession.id}/self-report`, {
@@ -67,9 +67,10 @@ export default function Home() {
       });
       setShowSelfReport(false);
       setReportTime('');
+      toast.success('Checkout report submitted for review');
       await fetchOpenSession();
     } catch (err) {
-      setReportError(err instanceof Error ? err.message : 'Failed to submit');
+      toast.error(err instanceof Error ? err.message : 'Failed to submit');
     } finally {
       setSubmitting(false);
     }
@@ -117,10 +118,6 @@ export default function Home() {
             <p className="text-sm text-neo-muted">
               Enter the time you left. This will be flagged for admin review.
             </p>
-
-            {reportError && (
-              <div className="neo-alert-danger text-sm p-3 rounded-neo-sm">{reportError}</div>
-            )}
 
             <input
               type="datetime-local"

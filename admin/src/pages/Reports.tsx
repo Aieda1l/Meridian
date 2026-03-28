@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
 import { getSeasons, getExport, type Season } from '../api/client';
+import { useToast } from '../context/ToastContext';
 
 export default function Reports() {
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [seasonId, setSeasonId] = useState('');
   const [format, setFormat] = useState<'csv' | 'pdf'>('csv');
   const [exporting, setExporting] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     getSeasons().then((s) => {
       setSeasons(s);
       const active = s.find((x) => x.is_active);
       if (active) setSeasonId(active.id);
-    }).catch(() => {});
+    }).catch(() => toast.error('Failed to load seasons'));
   }, []);
 
   const handleExport = async () => {
@@ -20,8 +22,9 @@ export default function Reports() {
     setExporting(true);
     try {
       await getExport(seasonId, format);
+      toast.success(`${format.toUpperCase()} report downloaded`);
     } catch {
-      /* empty */
+      toast.error('Export failed. Please try again.');
     } finally {
       setExporting(false);
     }

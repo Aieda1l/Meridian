@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { apiFetch } from '../api/client';
 
 interface Session {
@@ -36,6 +37,7 @@ const METHOD_ICONS: Record<string, string> = {
 
 export default function History() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -43,11 +45,15 @@ export default function History() {
 
   const fetchSessions = useCallback(async () => {
     if (!user) return;
-    const data = await apiFetch<SessionPage>(
-      `/members/${user.id}/sessions?page=${page}&page_size=${PAGE_SIZE}`,
-    );
-    setSessions(data.items);
-    setTotal(data.total);
+    try {
+      const data = await apiFetch<SessionPage>(
+        `/members/${user.id}/sessions?page=${page}&page_size=${PAGE_SIZE}`,
+      );
+      setSessions(data.items);
+      setTotal(data.total);
+    } catch {
+      toast.error('Failed to load session history');
+    }
   }, [user, page]);
 
   useEffect(() => {

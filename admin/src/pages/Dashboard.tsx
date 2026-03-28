@@ -1,11 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getDashboard, type DashboardData } from '../api/client';
+import { useToast } from '../context/ToastContext';
 import StatCard from '../components/StatCard';
 
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const { toast } = useToast();
+  const hasErrored = useRef(false);
 
-  const refresh = () => getDashboard().then(setData).catch(() => {});
+  const refresh = () =>
+    getDashboard()
+      .then((d) => { setData(d); hasErrored.current = false; })
+      .catch(() => {
+        if (!hasErrored.current) {
+          toast.error('Failed to load dashboard');
+          hasErrored.current = true;
+        }
+      });
 
   useEffect(() => {
     refresh();

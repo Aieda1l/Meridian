@@ -1,24 +1,24 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 export default function Login() {
   const { login } = useAuth();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
     try {
       await login(email, password);
       navigate('/');
     } catch {
-      setError('Invalid credentials or insufficient permissions');
+      toast.error('Invalid credentials or insufficient permissions');
     } finally {
       setLoading(false);
     }
@@ -36,10 +36,6 @@ export default function Login() {
           onSubmit={handleSubmit}
           className="bg-neo-surface rounded-neo-xl border border-light p-8 space-y-5 shadow-neo"
         >
-          {error && (
-            <div className="neo-alert neo-alert-danger text-sm">{error}</div>
-          )}
-
           <div>
             <label className="neo-label">Email</label>
             <input

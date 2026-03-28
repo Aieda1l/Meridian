@@ -461,6 +461,124 @@
 .neo-bg-secondary   { background-color: var(--neo-secondary); }
 
 /* ------------------------------------------------------------------ */
+/* Toasts                                                              */
+/* ------------------------------------------------------------------ */
+.neo-toast-container {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  pointer-events: none;
+  max-width: min(24rem, calc(100vw - 2.5rem));
+}
+
+.neo-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background-color: var(--neo-surface);
+  border: 1px solid var(--neo-border-light);
+  border-radius: var(--neo-radius-sm);
+  box-shadow: var(--neo-shadow-soft);
+  font-family: var(--neo-font);
+  font-size: 0.875rem;
+  color: var(--neo-text);
+  line-height: 1.5;
+  animation: neo-toast-in 0.3s ease-out;
+  overflow: hidden;
+}
+
+.neo-toast-exiting {
+  animation: neo-toast-out 0.3s ease-in forwards;
+}
+
+.neo-toast-icon {
+  flex-shrink: 0;
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+
+.neo-toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.neo-toast-title {
+  font-weight: 700;
+  margin-bottom: 0.125rem;
+}
+
+.neo-toast-message {
+  font-weight: 400;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.neo-toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--neo-text-muted);
+  cursor: pointer;
+  font-size: 1.125rem;
+  line-height: 1;
+  padding: 0;
+  margin-left: 0.25rem;
+  transition: color 0.15s;
+}
+
+.neo-toast-close:hover {
+  color: var(--neo-text);
+}
+
+/* Progress bar that shrinks over the toast duration */
+.neo-toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 0 0 var(--neo-radius-sm) var(--neo-radius-sm);
+  animation: neo-toast-progress linear forwards;
+}
+
+/* Variant accents — left border + icon color */
+.neo-toast-success { border-left: 4px solid var(--neo-success); }
+.neo-toast-success .neo-toast-icon { color: var(--neo-success); }
+.neo-toast-success .neo-toast-progress { background-color: var(--neo-success); }
+
+.neo-toast-error { border-left: 4px solid var(--neo-danger); }
+.neo-toast-error .neo-toast-icon { color: var(--neo-danger); }
+.neo-toast-error .neo-toast-progress { background-color: var(--neo-danger); }
+
+.neo-toast-warning { border-left: 4px solid var(--neo-warning); }
+.neo-toast-warning .neo-toast-icon { color: var(--neo-warning); }
+.neo-toast-warning .neo-toast-progress { background-color: var(--neo-warning); }
+
+.neo-toast-info { border-left: 4px solid var(--neo-info); }
+.neo-toast-info .neo-toast-icon { color: var(--neo-info); }
+.neo-toast-info .neo-toast-progress { background-color: var(--neo-info); }
+
+@keyframes neo-toast-in {
+  from { opacity: 0; transform: translateX(1rem); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes neo-toast-out {
+  from { opacity: 1; transform: translateX(0); max-height: 200px; margin-bottom: 0; }
+  to   { opacity: 0; transform: translateX(1rem); max-height: 0; margin-bottom: -0.625rem; }
+}
+
+@keyframes neo-toast-progress {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+
+/* ------------------------------------------------------------------ */
 /* Animations                                                          */
 /* ------------------------------------------------------------------ */
 @keyframes neo-breathe {

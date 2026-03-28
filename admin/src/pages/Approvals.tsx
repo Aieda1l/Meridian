@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getSessions, approveSession, type SessionItem } from '../api/client';
+import { useToast } from '../context/ToastContext';
 
 export default function Approvals() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -11,7 +13,7 @@ export default function Approvals() {
       const data = await getSessions('status=flagged&page_size=100');
       setSessions(data.items);
     } catch {
-      /* empty */
+      toast.error('Failed to load flagged sessions');
     } finally {
       setLoading(false);
     }
@@ -23,8 +25,9 @@ export default function Approvals() {
     try {
       await approveSession(id);
       setSessions((prev) => prev.filter((s) => s.id !== id));
+      toast.success('Session approved');
     } catch {
-      /* empty */
+      toast.error('Failed to approve session');
     }
   };
 

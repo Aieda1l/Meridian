@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getAuditLog, type AuditLogEntry, type AuditLogPage } from '../api/client';
+import { useToast } from '../context/ToastContext';
 import DataTable from '../components/DataTable';
 
 export default function AuditLog() {
@@ -7,10 +8,13 @@ export default function AuditLog() {
   const [page, setPage] = useState(1);
   const [eventType, setEventType] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { toast } = useToast();
   const PAGE_SIZE = 50;
 
   const refresh = useCallback(() => {
-    getAuditLog(page, PAGE_SIZE, eventType || undefined).then(setData).catch(() => {});
+    getAuditLog(page, PAGE_SIZE, eventType || undefined)
+      .then(setData)
+      .catch(() => toast.error('Failed to load audit log'));
   }, [page, eventType]);
 
   useEffect(() => { refresh(); }, [refresh]);

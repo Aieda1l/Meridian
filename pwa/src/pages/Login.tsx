@@ -1,24 +1,24 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 export default function Login() {
   const { login } = useAuth();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
     try {
       await login(email, password);
       navigate('/');
-    } catch (err) {
-      setError('Invalid email or password');
+    } catch {
+      toast.error('Invalid email or password');
     } finally {
       setLoading(false);
     }
@@ -33,10 +33,6 @@ export default function Login() {
         </div>
 
         <form onSubmit={handleSubmit} className="neo-card space-y-4">
-          {error && (
-            <div className="neo-alert-danger text-sm p-3 rounded-neo-sm">{error}</div>
-          )}
-
           <div>
             <label className="neo-label">Email</label>
             <input

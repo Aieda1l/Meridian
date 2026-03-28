@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import Home from './pages/Home';
 import Status from './pages/Status';
 import History from './pages/History';
@@ -59,10 +60,12 @@ function ProtectedLayout() {
 export default function App() {
   return (
     <AuthProvider>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/*" element={<ProtectedLayout />} />
-      </Routes>
+      <ToastProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/*" element={<ProtectedLayout />} />
+        </Routes>
+      </ToastProvider>
     </AuthProvider>
   );
 }

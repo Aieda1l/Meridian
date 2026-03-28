@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getMembers, createMember, type Member, type MemberPage, type CreateMemberData } from '../api/client';
+import { useToast } from '../context/ToastContext';
 import DataTable from '../components/DataTable';
 import Modal from '../components/Modal';
 
@@ -11,26 +12,26 @@ export default function Members() {
     member_number: '', name: '', email: '', phone: '', password: '', role: 'student',
   });
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const { toast } = useToast();
 
   const PAGE_SIZE = 50;
 
   const refresh = useCallback(() => {
-    getMembers(page, PAGE_SIZE).then(setData).catch(() => {});
+    getMembers(page, PAGE_SIZE).then(setData).catch(() => toast.error('Failed to load members'));
   }, [page]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleCreate = async () => {
-    setError('');
     setSaving(true);
     try {
       await createMember(form);
       setShowAdd(false);
       setForm({ member_number: '', name: '', email: '', phone: '', password: '', role: 'student' });
+      toast.success('Member created successfully');
       refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      toast.error(err instanceof Error ? err.message : 'Failed to create member');
     } finally {
       setSaving(false);
     }
@@ -85,7 +86,6 @@ export default function Members() {
 
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Member">
         <div className="space-y-3">
-          {error && <div className="neo-alert-danger">{error}</div>}
           {(['member_number', 'name', 'email', 'phone', 'password'] as const).map((field) => (
             <div key={field}>
               <label className="neo-label capitalize">
