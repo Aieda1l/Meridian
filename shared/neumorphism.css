@@ -579,6 +579,147 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Accordion  (Themesberg Neumorphism UI)                              */
+/*                                                                     */
+/*  <div class="neo-accordion neo-shadow-soft">                        */
+/*    <div class="neo-accordion-item">                                 */
+/*      <button class="neo-accordion-header">                          */
+/*        <span>Title</span>                                           */
+/*        <span class="neo-accordion-icon">+</span>                    */
+/*      </button>                                                      */
+/*      <div class="neo-accordion-body">Content</div>                  */
+/*    </div>                                                           */
+/*  </div>                                                             */
+/* ------------------------------------------------------------------ */
+.neo-accordion {
+  background-color: var(--neo-surface);
+  border: 1px solid var(--neo-border-light);
+  border-radius: var(--neo-radius-lg);
+  box-shadow: var(--neo-shadow-soft);
+  overflow: hidden;
+}
+
+.neo-accordion-item {
+  border-bottom: 1px solid var(--neo-border-light);
+}
+
+.neo-accordion-item:last-child {
+  border-bottom: none;
+}
+
+.neo-accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  font-family: var(--neo-font);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--neo-text);
+  background-color: var(--neo-surface);
+  border: none;
+  outline: none;
+  cursor: pointer;
+  transition: color 0.2s;
+  text-align: left;
+}
+
+.neo-accordion-header:hover {
+  color: var(--neo-secondary);
+}
+
+.neo-accordion-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--neo-text-muted);
+  transition: transform 0.3s ease;
+}
+
+.neo-accordion-header[aria-expanded="true"] .neo-accordion-icon {
+  transform: rotate(180deg);
+}
+
+.neo-accordion-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease;
+}
+
+.neo-accordion-body[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.neo-accordion-body > .neo-accordion-inner {
+  overflow: hidden;
+}
+
+.neo-accordion-content {
+  padding: 0 1.25rem 1.25rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Checkbox  (Themesberg Neumorphism UI)                               */
+/* ------------------------------------------------------------------ */
+.neo-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--neo-font);
+}
+
+.neo-check input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 1px solid var(--neo-border-light);
+  border-radius: 0.25rem;
+  background-color: var(--neo-surface);
+  box-shadow: var(--neo-shadow-inset);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.neo-check input[type="checkbox"]:checked {
+  background-color: var(--neo-secondary);
+  border-color: var(--neo-secondary);
+  box-shadow: none;
+}
+
+.neo-check input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 5px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.neo-check-label {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--neo-text);
+  transition: color 0.15s;
+}
+
+.neo-check:hover .neo-check-label {
+  color: var(--neo-secondary);
+}
+
+/* ------------------------------------------------------------------ */
 /* Animations                                                          */
 /* ------------------------------------------------------------------ */
 @keyframes neo-breathe {

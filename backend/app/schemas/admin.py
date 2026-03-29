@@ -66,3 +66,14 @@ class AuditLogResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ForceCheckoutResponse(BaseModel):
+    session_id: str
+    status: str
+    message: str
+
+
+class CheckoutAllResponse(BaseModel):
+    closed_count: int
+    session_ids: list[str]

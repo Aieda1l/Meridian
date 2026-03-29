@@ -1,11 +1,13 @@
-"""Admin router — dashboard, seasons, export, audit log.
+"""Admin router — dashboard, seasons, sessions, export, audit log.
 
-- GET  /admin/dashboard   — live dashboard stats
-- GET  /admin/seasons     — list all seasons
-- POST /admin/seasons     — create new season (deactivates current, rolls over)
-- PATCH /admin/seasons/{id} — update season
-- GET  /admin/export      — download CSV or PDF report
-- GET  /admin/audit-log   — paginated audit log
+- GET   /admin/dashboard                       — live dashboard stats
+- GET   /admin/seasons                         — list all seasons
+- POST  /admin/seasons                         — create new season (deactivates current, rolls over)
+- PATCH /admin/seasons/{id}                    — update season
+- PATCH /admin/sessions/{id}/force-checkout    — force-close an open session
+- POST  /admin/checkout-all                    — close all open sessions
+- GET   /admin/export                          — download CSV or PDF report
+- GET   /admin/audit-log                       — paginated audit log
 """
 
 from __future__ import annotations
@@ -31,8 +33,10 @@ from app.models.session import CheckOutMethod, Session, SessionStatus
 from app.schemas.admin import (
     AuditLogEntry,
     AuditLogResponse,
+    CheckoutAllResponse,
     DashboardMemberStatus,
     DashboardResponse,
+    ForceCheckoutResponse,
     SeasonCreate,
     SeasonOut,
     SeasonUpdate,
@@ -284,6 +288,97 @@ async def update_season(
 
 
 # ---------------------------------------------------------------------------
+# PATCH /admin/sessions/{id}/force-checkout — admin only
+# ---------------------------------------------------------------------------
+
+@router.patch("/sessions/{session_id}/force-checkout", response_model=ForceCheckoutResponse)
+async def force_checkout_session(
+    session_id: uuid.UUID,
+    request: Request,
+    member: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> ForceCheckoutResponse:
+    """Force-checkout an open session. Admin only."""
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    if session.status != SessionStatus.open:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Session status is '{session.status.value}', expected 'open'",
+        )
+
+    now = datetime.now(timezone.utc)
+    session.check_out_at = now
+    session.check_out_method = CheckOutMethod.admin
+    session.status = SessionStatus.closed
+    session.duration_minutes = int((now - session.check_in_at).total_seconds() / 60)
+
+    await db.flush()
+
+    await log_event(
+        db,
+        event_type="admin_force_checkout",
+        actor_id=member.id,
+        target_id=session.id,
+        detail={"member_id": str(session.member_id)},
+        ip_address=request.client.host if request.client else None,
+    )
+
+    await db.commit()
+
+    return ForceCheckoutResponse(
+        session_id=str(session.id),
+        status=session.status.value,
+        message="Session closed by admin",
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/checkout-all — admin only
+# ---------------------------------------------------------------------------
+
+@router.post("/checkout-all", response_model=CheckoutAllResponse)
+async def checkout_all_sessions(
+    request: Request,
+    member: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> CheckoutAllResponse:
+    """Close all currently open sessions. Admin only."""
+    result = await db.execute(
+        select(Session).where(Session.status == SessionStatus.open)
+    )
+    open_sessions = result.scalars().all()
+
+    now = datetime.now(timezone.utc)
+    closed_ids: list[str] = []
+
+    for sess in open_sessions:
+        sess.check_out_at = now
+        sess.check_out_method = CheckOutMethod.admin
+        sess.status = SessionStatus.closed
+        sess.duration_minutes = int((now - sess.check_in_at).total_seconds() / 60)
+        closed_ids.append(str(sess.id))
+
+    await db.flush()
+
+    await log_event(
+        db,
+        event_type="admin_checkout_all",
+        actor_id=member.id,
+        target_id=None,
+        detail={"closed_count": len(closed_ids), "session_ids": closed_ids},
+        ip_address=request.client.host if request.client else None,
+    )
+
+    await db.commit()
+
+    return CheckoutAllResponse(closed_count=len(closed_ids), session_ids=closed_ids)
+
+
+# ---------------------------------------------------------------------------
 # GET /admin/export
 # ---------------------------------------------------------------------------
 
@@ -292,6 +387,8 @@ async def export_report(
     season_id: uuid.UUID = Query(..., description="Season to export"),
     format: str = Query("csv", regex="^(csv|pdf)$", description="Export format: csv or pdf"),
     member_id: uuid.UUID | None = Query(None, description="Optional member filter"),
+    columns: str | None = Query(None, description="Comma-separated column keys to include (default: all)"),
+    include_summary: bool = Query(True, description="Include member hour totals summary section"),
     member: Member = Depends(require_admin_or_mentor),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
@@ -344,8 +441,14 @@ async def export_report(
 
     member_totals = list(totals_map.values())
 
+    # Parse column filter — None means "all columns"
+    col_set: set[str] | None = None
+    if columns:
+        col_set = {c.strip() for c in columns.split(",") if c.strip()}
+
     if format == "pdf":
-        content = generate_pdf(sessions, member_totals, season.name)
+        content = generate_pdf(sessions, member_totals, season.name,
+                               columns=col_set, include_summary=include_summary)
         return StreamingResponse(
             io.BytesIO(content),
             media_type="application/pdf",
@@ -355,7 +458,8 @@ async def export_report(
         )
 
     # Default: CSV
-    content = generate_csv(sessions, member_totals)
+    content = generate_csv(sessions, member_totals,
+                           columns=col_set, include_summary=include_summary)
     return StreamingResponse(
         io.BytesIO(content),
         media_type="text/csv; charset=utf-8",

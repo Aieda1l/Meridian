@@ -159,7 +159,7 @@ class MainWindow(QWidget):
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
+            #| Qt.WindowType.WindowStaysOnTopHint
         )
         self.setStyleSheet(styles.GLOBAL_STYLE)
 

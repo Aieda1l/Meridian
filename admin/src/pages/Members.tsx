@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getMembers, createMember, type Member, type MemberPage, type CreateMemberData } from '../api/client';
+import { getMembers, createMember, checkoutAll, type Member, type MemberPage, type CreateMemberData } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import DataTable from '../components/DataTable';
 import Modal from '../components/Modal';
+import MemberDetail from '../components/MemberDetail';
 
 export default function Members() {
   const [data, setData] = useState<MemberPage | null>(null);
@@ -12,6 +13,8 @@ export default function Members() {
     member_number: '', name: '', email: '', phone: '', password: '', role: 'student',
   });
   const [saving, setSaving] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [checkingOutAll, setCheckingOutAll] = useState(false);
   const { toast } = useToast();
 
   const PAGE_SIZE = 50;
@@ -34,6 +37,19 @@ export default function Members() {
       toast.error(err instanceof Error ? err.message : 'Failed to create member');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCheckoutAll = async () => {
+    if (!confirm('Close all open sessions? This will force-checkout every currently checked-in member.')) return;
+    setCheckingOutAll(true);
+    try {
+      const res = await checkoutAll();
+      toast.success(`${res.closed_count} session${res.closed_count === 1 ? '' : 's'} closed`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to checkout all');
+    } finally {
+      setCheckingOutAll(false);
     }
   };
 
@@ -66,12 +82,22 @@ export default function Members() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-neo-dark">Members</h2>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="neo-btn neo-btn-fill-secondary"
-        >
-          + Add Member
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleCheckoutAll}
+            disabled={checkingOutAll}
+            className="neo-btn text-sm"
+            style={{ color: 'var(--neo-danger)', fontWeight: 600 }}
+          >
+            {checkingOutAll ? 'Closing...' : 'Log Out All'}
+          </button>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="neo-btn neo-btn-fill-secondary"
+          >
+            + Add Member
+          </button>
+        </div>
       </div>
 
       <DataTable
@@ -81,6 +107,7 @@ export default function Members() {
         page={page}
         totalPages={data ? Math.ceil(data.total / PAGE_SIZE) : 1}
         onPageChange={setPage}
+        onRowClick={(row) => setSelectedMemberId(row.id)}
         loading={!data}
       />
 
@@ -123,6 +150,12 @@ export default function Members() {
           </div>
         </div>
       </Modal>
+
+      <MemberDetail
+        memberId={selectedMemberId}
+        onClose={() => setSelectedMemberId(null)}
+        onChanged={refresh}
+      />
     </div>
   );
 }

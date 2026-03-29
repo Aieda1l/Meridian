@@ -67,11 +67,29 @@ export const getSessions = (params: string) =>
 export const approveSession = (id: string) =>
   apiFetch(`/sessions/${id}/approve`, { method: 'PATCH' });
 
-export const getExport = async (seasonId: string, format: string, memberId?: string) => {
+export interface ExportOptions {
+  seasonId: string;
+  format: string;
+  memberId?: string;
+  columns?: string[];
+  includeSummary?: boolean;
+}
+
+export const getExport = async (opts: ExportOptions) => {
   const token = localStorage.getItem('admin_access_token');
-  const qs = memberId ? `&member_id=${memberId}` : '';
+  const params = new URLSearchParams({
+    season_id: opts.seasonId,
+    format: opts.format,
+  });
+  if (opts.memberId) params.set('member_id', opts.memberId);
+  if (opts.columns && opts.columns.length > 0) {
+    params.set('columns', opts.columns.join(','));
+  }
+  if (opts.includeSummary === false) {
+    params.set('include_summary', 'false');
+  }
   const res = await fetch(
-    `${API_BASE}/admin/export?season_id=${seasonId}&format=${format}${qs}`,
+    `${API_BASE}/admin/export?${params}`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include' },
   );
   if (!res.ok) throw new Error('Export failed');
@@ -79,10 +97,51 @@ export const getExport = async (seasonId: string, format: string, memberId?: str
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `meridian-export.${format}`;
+  a.download = `meridian-export.${opts.format}`;
   a.click();
   URL.revokeObjectURL(url);
 };
+
+export const forceCheckout = (sessionId: string) =>
+  apiFetch<{ session_id: string; status: string; message: string }>(
+    `/admin/sessions/${sessionId}/force-checkout`,
+    { method: 'PATCH' },
+  );
+
+export const checkoutAll = () =>
+  apiFetch<{ closed_count: number; session_ids: string[] }>(
+    '/admin/checkout-all',
+    { method: 'POST' },
+  );
+
+export interface MemberSessionItem {
+  id: string;
+  member_id: string;
+  season_id: string;
+  check_in_at: string;
+  check_out_at: string | null;
+  duration_minutes: number | null;
+  check_in_method: string;
+  check_out_method: string | null;
+  status: string;
+  flag_reason: string | null;
+  created_at: string;
+}
+
+export interface MemberSessionPage {
+  items: MemberSessionItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export const getMemberSessions = (memberId: string, page = 1, pageSize = 20, status?: string) => {
+  const qs = status ? `&status=${status}` : '';
+  return apiFetch<MemberSessionPage>(`/members/${memberId}/sessions?page=${page}&page_size=${pageSize}${qs}`);
+};
+
+export const getMemberHours = (memberId: string) =>
+  apiFetch<MemberHours>(`/members/${memberId}/hours`);
 
 export const getAuditLog = (page = 1, pageSize = 50, eventType?: string) => {
   const qs = eventType ? `&event_type=${eventType}` : '';
@@ -187,6 +246,16 @@ export interface SessionPage {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface MemberHours {
+  member_id: string;
+  hours_today: number;
+  hours_this_week: number;
+  hours_this_season: number;
+  daily_cap: number;
+  weekly_cap: number;
+  season_cap: number;
 }
 
 export interface AuditLogEntry {
