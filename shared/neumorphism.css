@@ -204,6 +204,16 @@
   color: var(--neo-gray-muted);
 }
 
+.neo-input:-webkit-autofill,
+.neo-input:-webkit-autofill:hover,
+.neo-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--neo-text);
+  -webkit-box-shadow: var(--neo-shadow-inset), 0 0 0px 1000px var(--neo-surface) inset !important;
+  box-shadow: var(--neo-shadow-inset), 0 0 0px 1000px var(--neo-surface) inset !important;
+  border-color: var(--neo-border-light);
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 /* Select */
 .neo-select {
   display: block;

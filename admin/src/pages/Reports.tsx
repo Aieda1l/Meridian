@@ -39,7 +39,7 @@ export default function Reports() {
       })
       .catch(() => toast.error('Failed to load seasons'));
 
-    getMembers(1, 500)
+    getMembers(1, 200)
       .then((p) => setMembers(p.items))
       .catch(() => toast.error('Failed to load members'));
   }, []);

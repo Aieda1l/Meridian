@@ -43,6 +43,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              placeholder="you@team.org"
               className="neo-input"
             />
           </div>
@@ -54,6 +55,7 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              placeholder="Password"
               className="neo-input"
             />
           </div>

@@ -11,4 +11,10 @@
     color: #31344b;
     font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
+
+  [type='email'].neo-input,
+  [type='password'].neo-input,
+  [type='text'].neo-input {
+    box-shadow: var(--neo-shadow-inset);
+  }
 }

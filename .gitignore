@@ -37,9 +37,7 @@ offline_cache.enc
 MeridianScanner.exe
 
 # Reference / downloaded assets
-Neumorphism UI/
+/neumorphism-ui/
 
 # Claude Code
 .claude/
-
-/neumorphism-ui/
