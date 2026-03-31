@@ -217,14 +217,8 @@ async def geofence_checkout(
             detail="No active session found",
         )
 
-    session.status = SessionStatus.closed
-    session.check_out_at = datetime.now(timezone.utc)
-    session.check_out_method = CheckOutMethod.geofence
-
-    # Calculate duration
-    if session.check_in_at:
-        delta = session.check_out_at - session.check_in_at
-        session.duration_minutes = round(delta.total_seconds() / 60, 2)
+    from app.services.checkout import close_session
+    close_session(session, CheckOutMethod.geofence, datetime.now(timezone.utc))
 
     await db.commit()
 

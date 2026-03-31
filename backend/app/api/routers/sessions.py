@@ -210,8 +210,8 @@ async def approve_session(
 
     session.status = SessionStatus.approved
 
-    # If there's a self-reported checkout and no actual checkout, apply it
-    if session.check_out_at is None and session.self_report_checkout_at is not None:
+    # If this is a self-reported checkout, apply its requested checkout time and duration
+    if session.flag_reason == "self_reported_checkout" and session.self_report_checkout_at is not None:
         session.check_out_at = session.self_report_checkout_at
         session.duration_minutes = _calculate_duration_minutes(
             session.check_in_at, session.self_report_checkout_at
@@ -345,12 +345,11 @@ async def auto_timeout_sessions(
     )
     stale_sessions = result.scalars().all()
 
+    from app.services.checkout import close_session
     for session in stale_sessions:
-        session.check_out_at = now
-        session.check_out_method = CheckOutMethod.auto_timeout
+        close_session(session, CheckOutMethod.auto_timeout, now)
         session.status = SessionStatus.flagged
         session.flag_reason = "auto_timeout"
-        session.duration_minutes = _calculate_duration_minutes(session.check_in_at, now)
         timed_out_ids.append(str(session.id))
 
     # ── 2. Geofence grace period expiry ───────────────────────────────────
@@ -369,18 +368,15 @@ async def auto_timeout_sessions(
 
     grace_period = settings.GEOFENCE_GRACE_PERIOD_SECONDS
 
+    from app.api.routers.geofence import GRACE_KEY_PREFIX
+
     for session in geo_sessions:
-        grace_key = f"geofence:grace:{session.id}"
+        grace_key = f"{GRACE_KEY_PREFIX}{session.member_id}"
         key_exists = await redis_client.exists(grace_key)
 
         if not key_exists:
             checkout_time = session.geofence_exit_at + timedelta(seconds=grace_period)  # type: ignore[operator]
-            session.check_out_at = checkout_time
-            session.check_out_method = CheckOutMethod.geofence
-            session.status = SessionStatus.closed
-            session.duration_minutes = _calculate_duration_minutes(
-                session.check_in_at, checkout_time
-            )
+            close_session(session, CheckOutMethod.geofence, checkout_time)
             timed_out_ids.append(str(session.id))
 
     await db.flush()

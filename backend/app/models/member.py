@@ -42,6 +42,9 @@ class Member(TimestampMixin, Base):
     email_encrypted: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True
     )
+    email_hash: Mapped[Optional[str]] = mapped_column(
+        String, index=True, nullable=True
+    )
     phone_encrypted: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True
     )

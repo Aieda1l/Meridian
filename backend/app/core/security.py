@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -21,6 +23,20 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.member import Member, MemberRole
 from app.models.scanner import Scanner
+
+# ---------------------------------------------------------------------------
+# Email Hashing (Deterministic for O(1) lookups)
+# ---------------------------------------------------------------------------
+
+def hash_email(email: str) -> str:
+    """Deterministically hash an email for O(1) DB lookups using the JWT_SECRET as a pepper."""
+    # Convert email to lowercase and strip whitespace for consistent hashing
+    normalized = email.strip().lower()
+    return hmac.new(
+        settings.JWT_SECRET.encode(),
+        normalized.encode(),
+        hashlib.sha256,
+    ).hexdigest()
 
 # ---------------------------------------------------------------------------
 # Password hashing (bcrypt)

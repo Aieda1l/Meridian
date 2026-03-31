@@ -337,12 +337,8 @@ async def scanner_checkout(
 
     now = datetime.now(timezone.utc)
 
-    # Close the session
-    open_session.check_out_at = now
-    duration = int((now - open_session.check_in_at).total_seconds() / 60)
-    open_session.duration_minutes = max(duration, 0)
-    open_session.check_out_method = CheckOutMethod(body.method)
-    open_session.status = SessionStatus.closed
+    from app.services.checkout import close_session
+    close_session(open_session, CheckOutMethod(body.method), now)
 
     # Store selfie reference if provided
     if body.selfie_base64:
@@ -550,13 +546,8 @@ async def scanner_flush_queue(
                     skipped += 1
                     continue
 
-                open_session.check_out_at = event.timestamp
-                duration = int(
-                    (event.timestamp - open_session.check_in_at).total_seconds() / 60
-                )
-                open_session.duration_minutes = max(duration, 0)
-                open_session.check_out_method = CheckOutMethod(event.method)
-                open_session.status = SessionStatus.closed
+                from app.services.checkout import close_session
+                close_session(open_session, CheckOutMethod(event.method), event.timestamp)
 
                 if event.selfie_base64:
                     open_session.selfie_url = (

@@ -55,25 +55,17 @@ async def login(
     """Authenticate with email + password. Returns access token in body,
     refresh token as an httpOnly cookie."""
 
-    # Look up member by decrypting email — we must scan all active members.
-    # For small teams (< 200 members) this is acceptable.
+    from app.core.security import hash_email
+    hashed_email = hash_email(body.email)
+
     result = await db.execute(
-        select(Member).where(Member.is_active == True)  # noqa: E712
+        select(Member).where(Member.email_hash == hashed_email, Member.is_active == True)  # noqa: E712
     )
-    members = result.scalars().all()
+    member = result.scalar_one_or_none()
 
     authenticated_member: Member | None = None
-    for member in members:
-        if member.email_encrypted is None:
-            continue
-        try:
-            decrypted_email = await pgp_decrypt(db, member.email_encrypted)
-        except Exception:
-            continue
-        if decrypted_email == body.email:
-            if verify_password(body.password, member.password_hashed):
-                authenticated_member = member
-            break
+    if member is not None and verify_password(body.password, member.password_hashed):
+        authenticated_member = member
 
     if authenticated_member is None:
         # Log failed attempt
@@ -185,8 +177,10 @@ async def register(
         )
 
     # Encrypt PII
+    from app.core.security import hash_email
     name_enc = await pgp_encrypt(db, body.name)
     email_enc = await pgp_encrypt(db, body.email)
+    email_hash_val = hash_email(body.email)
     phone_enc = await pgp_encrypt(db, body.phone) if body.phone else None
 
     # Generate TOTP secret and encrypt it
@@ -206,6 +200,7 @@ async def register(
         member_number=body.member_number,
         name_encrypted=name_enc,
         email_encrypted=email_enc,
+        email_hash=email_hash_val,
         phone_encrypted=phone_enc,
         role=role,
         password_hashed=hash_password(body.password),

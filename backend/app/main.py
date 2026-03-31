@@ -53,14 +53,11 @@ async def _auto_timeout_loop():
                         )
                     )
                 )
+                from app.services.checkout import close_session
                 for session in result.scalars().all():
-                    session.check_out_at = now
-                    session.check_out_method = CheckOutMethod.auto_timeout
+                    close_session(session, CheckOutMethod.auto_timeout, now)
                     session.status = SessionStatus.flagged
                     session.flag_reason = "auto_timeout"
-                    session.duration_minutes = round(
-                        (now - session.check_in_at).total_seconds() / 60, 2
-                    )
                     closed_ids.append(str(session.id))
 
                 # ── 2. Geofence grace period expiry ────────────────────
@@ -82,12 +79,7 @@ async def _auto_timeout_loop():
                         # Don't set checkout in the future
                         if checkout_time > now:
                             checkout_time = now
-                        session.check_out_at = checkout_time
-                        session.check_out_method = CheckOutMethod.geofence
-                        session.status = SessionStatus.closed
-                        session.duration_minutes = round(
-                            (checkout_time - session.check_in_at).total_seconds() / 60, 2
-                        )
+                        close_session(session, CheckOutMethod.geofence, checkout_time)
                         closed_ids.append(str(session.id))
                         await log_event(
                             db,

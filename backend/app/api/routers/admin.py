@@ -71,8 +71,13 @@ async def get_dashboard(
     active_member_count = active_count_result.scalar_one()
 
     # Checked-in (open) sessions with member info
+    from app.core.config import settings
     open_sessions_result = await db.execute(
-        select(Session, Member)
+        select(
+            Session,
+            Member,
+            func.pgp_sym_decrypt(Member.name_encrypted, settings.PGP_SYM_KEY).label("decrypted_name")
+        )
         .join(Member, Session.member_id == Member.id)
         .where(Session.status == SessionStatus.open)
     )
@@ -80,8 +85,8 @@ async def get_dashboard(
 
     now = datetime.now(timezone.utc)
     checked_in_members: list[DashboardMemberStatus] = []
-    for session, mem in open_rows:
-        name = await pgp_decrypt(db, mem.name_encrypted) if mem.name_encrypted else ""
+    for session, mem, dec_name in open_rows:
+        name = dec_name if dec_name else ""
         elapsed = int((now - session.check_in_at).total_seconds() / 60)
         checked_in_members.append(
             DashboardMemberStatus(
@@ -195,14 +200,11 @@ async def create_season(
                 )
             )
         )
-        open_sessions = open_sessions_result.scalars().all()
         now = datetime.now(timezone.utc)
+        from app.services.checkout import close_session
         for sess in open_sessions:
-            sess.status = SessionStatus.closed
-            sess.check_out_at = now
-            sess.check_out_method = CheckOutMethod.auto_timeout
+            close_session(sess, CheckOutMethod.auto_timeout, now)
             sess.flag_reason = "season_rollover"
-            sess.duration_minutes = int((now - sess.check_in_at).total_seconds() / 60)
 
     # Create new season
     new_season = Season(
@@ -317,10 +319,8 @@ async def force_checkout_session(
         )
 
     now = datetime.now(timezone.utc)
-    session.check_out_at = now
-    session.check_out_method = CheckOutMethod.admin
-    session.status = SessionStatus.closed
-    session.duration_minutes = int((now - session.check_in_at).total_seconds() / 60)
+    from app.services.checkout import close_session
+    close_session(session, CheckOutMethod.admin, now)
 
     await db.flush()
 
@@ -361,11 +361,9 @@ async def checkout_all_sessions(
     now = datetime.now(timezone.utc)
     closed_ids: list[str] = []
 
+    from app.services.checkout import close_session
     for sess in open_sessions:
-        sess.check_out_at = now
-        sess.check_out_method = CheckOutMethod.admin
-        sess.status = SessionStatus.closed
-        sess.duration_minutes = int((now - sess.check_in_at).total_seconds() / 60)
+        close_session(sess, CheckOutMethod.admin, now)
         closed_ids.append(str(sess.id))
 
     await db.flush()
