@@ -2,24 +2,105 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import and_, select
 
 from app.api.routers.admin import router as admin_router
 from app.api.routers.auth import router as auth_router
+from app.api.routers.geofence import GRACE_KEY_PREFIX as GEO_GRACE_PREFIX
 from app.api.routers.geofence import router as geofence_router
 from app.api.routers.members import router as members_router
 from app.api.routers.passes import router as passes_router
 from app.api.routers.scanner import router as scanner_router
 from app.api.routers.sessions import router as sessions_router
 from app.core.config import settings
+from app.core.database import async_session_factory
 from app.core.rate_limit import limiter
 from app.core.redis import redis as redis_client
+from app.models.session import CheckOutMethod, Session, SessionStatus
+from app.services.audit import log_event
+
+logger = logging.getLogger("meridian.autotimeout")
+
+AUTOTIMEOUT_INTERVAL = 30  # seconds
+
+
+async def _auto_timeout_loop():
+    """Background loop that closes stale sessions and expired geofence grace periods."""
+    while True:
+        await asyncio.sleep(AUTOTIMEOUT_INTERVAL)
+        try:
+            async with async_session_factory() as db:
+                now = datetime.now(timezone.utc)
+                closed_ids: list[str] = []
+
+                # ── 1. Stale sessions older than 12 hours ──────────────
+                cutoff = now - timedelta(hours=12)
+                result = await db.execute(
+                    select(Session).where(
+                        and_(
+                            Session.status == SessionStatus.open,
+                            Session.check_in_at <= cutoff,
+                        )
+                    )
+                )
+                for session in result.scalars().all():
+                    session.check_out_at = now
+                    session.check_out_method = CheckOutMethod.auto_timeout
+                    session.status = SessionStatus.flagged
+                    session.flag_reason = "auto_timeout"
+                    session.duration_minutes = round(
+                        (now - session.check_in_at).total_seconds() / 60, 2
+                    )
+                    closed_ids.append(str(session.id))
+
+                # ── 2. Geofence grace period expiry ────────────────────
+                geo_result = await db.execute(
+                    select(Session).where(
+                        and_(
+                            Session.status == SessionStatus.open,
+                            Session.geofence_exit_at.is_not(None),
+                        )
+                    )
+                )
+                for session in geo_result.scalars().all():
+                    grace_key = f"{GEO_GRACE_PREFIX}{session.member_id}"
+                    key_exists = await redis_client.exists(grace_key)
+                    if not key_exists:
+                        checkout_time = session.geofence_exit_at + timedelta(
+                            seconds=settings.GEOFENCE_GRACE_PERIOD_SECONDS
+                        )
+                        # Don't set checkout in the future
+                        if checkout_time > now:
+                            checkout_time = now
+                        session.check_out_at = checkout_time
+                        session.check_out_method = CheckOutMethod.geofence
+                        session.status = SessionStatus.closed
+                        session.duration_minutes = round(
+                            (checkout_time - session.check_in_at).total_seconds() / 60, 2
+                        )
+                        closed_ids.append(str(session.id))
+                        await log_event(
+                            db,
+                            event_type="geofence_checkout",
+                            actor_id=session.member_id,
+                            detail={"session_id": str(session.id), "source": "auto_timeout"},
+                        )
+
+                if closed_ids:
+                    await db.commit()
+                    logger.info("Auto-timeout closed %d session(s): %s", len(closed_ids), closed_ids)
+        except Exception:
+            logger.exception("Auto-timeout loop error")
 
 
 @asynccontextmanager
@@ -27,8 +108,10 @@ async def lifespan(app: FastAPI):
     """Application startup/shutdown lifecycle."""
     # Startup: verify Redis connectivity
     await redis_client.ping()
+    task = asyncio.create_task(_auto_timeout_loop())
     yield
-    # Shutdown: close Redis connection pool
+    # Shutdown: cancel background task and close Redis
+    task.cancel()
     await redis_client.aclose()
 
 

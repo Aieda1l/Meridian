@@ -7,6 +7,7 @@ from .scanner import Scanner
 from .session import Session, CheckInMethod, CheckOutMethod, SessionStatus
 from .hour_warning import HourWarning, WarningType
 from .admin_event import AdminEvent
+from .geofence_zone import GeofenceZone, scanner_geofence_zones
 
 __all__ = [
     "Base",
@@ -23,4 +24,6 @@ __all__ = [
     "HourWarning",
     "WarningType",
     "AdminEvent",
+    "GeofenceZone",
+    "scanner_geofence_zones",
 ]

@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Members from './pages/Members';
 import Approvals from './pages/Approvals';
 import Reports from './pages/Reports';
+import Geofences from './pages/Geofences';
 import AuditLog from './pages/AuditLog';
 
 function ProtectedLayout() {
@@ -31,6 +32,7 @@ function ProtectedLayout() {
           <Route path="/members" element={<Members />} />
           <Route path="/approvals" element={<Approvals />} />
           <Route path="/reports" element={<Reports />} />
+          {role === 'admin' && <Route path="/geofences" element={<Geofences />} />}
           {role === 'admin' && <Route path="/audit-log" element={<AuditLog />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

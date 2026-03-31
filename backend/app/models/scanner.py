@@ -12,6 +12,7 @@ from sqlalchemy.sql import func
 from .base import Base
 
 if TYPE_CHECKING:
+    from .geofence_zone import GeofenceZone
     from .session import Session
 
 
@@ -37,6 +38,10 @@ class Scanner(Base):
 
     # Relationships
     sessions: Mapped[List["Session"]] = relationship(back_populates="scanner")
+    geofence_zones: Mapped[List["GeofenceZone"]] = relationship(
+        secondary="scanner_geofence_zones",
+        back_populates="scanners",
+    )
 
     def __repr__(self) -> str:
         return f"<Scanner(id={self.id!r}, name={self.name!r})>"

@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/members', label: 'Members', icon: '\u{1F465}' },
   { to: '/approvals', label: 'Approvals', icon: '\u2705' },
   { to: '/reports', label: 'Reports', icon: '\u{1F4C4}' },
+  { to: '/geofences', label: 'Geofences', icon: '\u{1F4CD}', adminOnly: true },
   { to: '/audit-log', label: 'Audit Log', icon: '\u{1F50D}', adminOnly: true },
 ];
 
@@ -13,7 +14,7 @@ export default function Sidebar() {
   const { user, role, logout } = useAuth();
 
   return (
-    <aside className="w-60 neo-sidebar flex flex-col min-h-screen">
+    <aside className="w-60 neo-sidebar flex flex-col h-screen sticky top-0">
       <div className="p-5 border-b border-light">
         <h1 className="text-xl font-bold text-neo-dark">Meridian</h1>
         <p className="text-xs text-neo-muted mt-0.5">Admin Dashboard</p>

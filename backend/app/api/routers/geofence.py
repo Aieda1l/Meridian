@@ -1,26 +1,28 @@
 """Geofence router -- exit, return, config.
 
-- POST /geofence/exit   -- PWA reports member left the shop; starts 90s grace period
+- POST /geofence/exit   -- PWA reports member left the shop; starts grace period
 - POST /geofence/return -- PWA reports member returned during grace period; cancels checkout
-- GET  /geofence/config -- returns shop polygon and grace period for PWA to configure
+- GET  /geofence/config -- returns zone polygons and grace period for PWA
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from shapely.geometry import Point, Polygon
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.redis import get_redis
 from app.core.security import get_current_member
+from app.models.geofence_zone import GeofenceZone, scanner_geofence_zones
 from app.models.member import Member
-from app.models.session import Session, SessionStatus
+from app.models.session import CheckOutMethod, Session, SessionStatus
 from app.schemas.geofence import (
-    GeofenceConfigResponse,
     GeofenceExitRequest,
     GeofenceReturnRequest,
 )
@@ -31,19 +33,57 @@ router = APIRouter(prefix="/geofence", tags=["geofence"])
 GRACE_KEY_PREFIX = "geofence_grace:"
 
 
-def _build_shop_polygon() -> Polygon:
-    """Build a Shapely Polygon from the configured geofence coordinates."""
-    coords = [(pt["lng"], pt["lat"]) for pt in settings.geofence_polygon_list]
-    return Polygon(coords)
+async def _get_zones_for_scanner(db: AsyncSession, scanner_id: str | None) -> list[dict]:
+    """Fetch zone polygons linked to a specific scanner.
+
+    If scanner_id is None or no zones are linked, returns ALL zones.
+    Falls back to GEOFENCE_POLYGON env var if no DB zones exist at all.
+    """
+    all_zones_result = await db.execute(
+        select(GeofenceZone).options(selectinload(GeofenceZone.scanners))
+    )
+    all_zones = all_zones_result.scalars().all()
+
+    if not all_zones:
+        # Fallback to env var
+        env_polygon = settings.geofence_polygon_list
+        if env_polygon:
+            return [{"id": "env", "name": "Default", "polygon": env_polygon, "color": "#3388ff"}]
+        return []
+
+    def _zone_dict(z: GeofenceZone) -> dict:
+        return {
+            "id": str(z.id),
+            "name": z.name,
+            "polygon": json.loads(z.polygon_json),
+            "color": z.color,
+            "scanner_ids": [s.id for s in z.scanners],
+        }
+
+    # If a scanner_id is given, filter to zones linked to that scanner
+    if scanner_id:
+        linked = [z for z in all_zones if any(s.id == scanner_id for s in z.scanners)]
+        if linked:
+            return [_zone_dict(z) for z in linked]
+
+    # No scanner filter, or no zones linked to this scanner — return all
+    return [_zone_dict(z) for z in all_zones]
 
 
-def _is_inside_buffered_polygon(polygon: Polygon, latitude: float, longitude: float) -> bool:
-    """Return True if the point falls inside the polygon + buffer zone."""
-    # Approximate conversion: 1 degree latitude ~= 111 320 m
+def _is_inside_any_polygon(
+    zone_polygons: list[dict], latitude: float, longitude: float,
+) -> bool:
+    """Return True if the point falls inside any zone polygon + buffer."""
     buffer_degrees = settings.GEOFENCE_BUFFER_METERS / 111320
-    buffered = polygon.buffer(buffer_degrees)
     point = Point(longitude, latitude)
-    return buffered.contains(point)
+    for zp in zone_polygons:
+        coords = [(pt["lng"], pt["lat"]) for pt in zp["polygon"]]
+        if len(coords) < 3:
+            continue
+        poly = Polygon(coords).buffer(buffer_degrees)
+        if poly.contains(point):
+            return True
+    return False
 
 
 @router.post("/exit")
@@ -55,18 +95,16 @@ async def geofence_exit(
 ):
     """Report that a member has left the shop boundary."""
 
-    # 1. Verify the authenticated member matches the request
     if str(member.id) != body.member_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="member_id does not match authenticated user",
         )
 
-    # 2. Check for an open session
     result = await db.execute(
         select(Session).where(
             Session.member_id == member.id,
-            Session.status == SessionStatus.active,
+            Session.status == SessionStatus.open,
         )
     )
     session = result.scalar_one_or_none()
@@ -76,15 +114,20 @@ async def geofence_exit(
             detail="No active session found",
         )
 
-    # 3. Server-side geofence re-validation
-    polygon = _build_shop_polygon()
-    if _is_inside_buffered_polygon(polygon, body.latitude, body.longitude):
+    # Validate against zones linked to the session's scanner
+    zone_polygons = await _get_zones_for_scanner(db, session.scanner_id)
+    if not zone_polygons:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No geofence zones configured",
+        )
+
+    if _is_inside_any_polygon(zone_polygons, body.latitude, body.longitude):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Location is within shop boundary",
         )
 
-    # 4. Set grace period key in Redis
     grace_key = f"{GRACE_KEY_PREFIX}{member.id}"
     await redis.set(
         grace_key,
@@ -92,15 +135,13 @@ async def geofence_exit(
         ex=settings.GEOFENCE_GRACE_PERIOD_SECONDS,
     )
 
-    # 5. Update session geofence_exit_at
     session.geofence_exit_at = datetime.now(timezone.utc)
     await db.commit()
 
-    # 6. Log to admin events
     await log_event(
         db,
         event_type="geofence_exit",
-        member_id=str(member.id),
+        actor_id=member.id,
         detail={
             "session_id": str(session.id),
             "latitude": body.latitude,
@@ -124,14 +165,12 @@ async def geofence_return(
 ):
     """Report that a member has returned during the grace period."""
 
-    # 1. Verify member
     if str(member.id) != body.member_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="member_id does not match authenticated user",
         )
 
-    # 2. Check Redis for grace period key
     grace_key = f"{GRACE_KEY_PREFIX}{member.id}"
     session_id = await redis.get(grace_key)
 
@@ -141,14 +180,12 @@ async def geofence_return(
             detail="Grace period has expired",
         )
 
-    # 3. Grace period active -- cancel pending checkout
     await redis.delete(grace_key)
 
-    # Clear geofence_exit_at on the session
     result = await db.execute(
         select(Session).where(
             Session.member_id == member.id,
-            Session.status == SessionStatus.active,
+            Session.status == SessionStatus.open,
         )
     )
     session = result.scalar_one_or_none()
@@ -159,13 +196,75 @@ async def geofence_return(
     return {"status": "return_confirmed"}
 
 
-@router.get("/config", response_model=GeofenceConfigResponse)
+@router.post("/checkout")
+async def geofence_checkout(
+    member: Member = Depends(get_current_member),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    """Close the member's open session after the grace period expired."""
+
+    result = await db.execute(
+        select(Session).where(
+            Session.member_id == member.id,
+            Session.status == SessionStatus.open,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active session found",
+        )
+
+    session.status = SessionStatus.closed
+    session.check_out_at = datetime.now(timezone.utc)
+    session.check_out_method = CheckOutMethod.geofence
+
+    # Calculate duration
+    if session.check_in_at:
+        delta = session.check_out_at - session.check_in_at
+        session.duration_minutes = round(delta.total_seconds() / 60, 2)
+
+    await db.commit()
+
+    # Clean up any lingering grace key
+    grace_key = f"{GRACE_KEY_PREFIX}{member.id}"
+    await redis.delete(grace_key)
+
+    await log_event(
+        db,
+        event_type="geofence_checkout",
+        actor_id=member.id,
+        detail={"session_id": str(session.id)},
+    )
+
+    return {
+        "status": "checked_out",
+        "session_id": str(session.id),
+    }
+
+
+@router.get("/config")
 async def geofence_config(
     member: Member = Depends(get_current_member),
+    db: AsyncSession = Depends(get_db),
+    scanner_id: str | None = Query(None),
 ):
-    """Return the shop polygon and grace period configuration for the PWA."""
-    return GeofenceConfigResponse(
-        polygon=settings.geofence_polygon_list,
-        grace_period_seconds=settings.GEOFENCE_GRACE_PERIOD_SECONDS,
-        buffer_meters=settings.GEOFENCE_BUFFER_METERS,
-    )
+    """Return zone polygons and grace period configuration for the PWA.
+
+    If scanner_id is provided, only returns zones linked to that scanner.
+    """
+    zone_polygons = await _get_zones_for_scanner(db, scanner_id)
+
+    # Legacy: flatten all zone polygons into a single list for old clients
+    all_points: list[dict[str, float]] = []
+    for zp in zone_polygons:
+        all_points.extend(zp["polygon"])
+
+    return {
+        "polygon": all_points,
+        "zones": zone_polygons,
+        "grace_period_seconds": settings.GEOFENCE_GRACE_PERIOD_SECONDS,
+        "buffer_meters": settings.GEOFENCE_BUFFER_METERS,
+    }

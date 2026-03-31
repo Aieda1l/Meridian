@@ -7,6 +7,7 @@ import { apiFetch } from '../api/client';
 interface Session {
   id: string;
   check_in_at: string;
+  scanner_id: string | null;
   status: string;
 }
 
@@ -19,8 +20,6 @@ export default function Home() {
   const [reportTime, setReportTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  useGeofence(!!openSession, user?.id ?? '');
-
   const fetchOpenSession = useCallback(async () => {
     if (!user) return;
     try {
@@ -32,6 +31,14 @@ export default function Home() {
       setOpenSession(null);
     }
   }, [user]);
+
+  useGeofence({
+    isCheckedIn: !!openSession,
+    memberId: user?.id ?? '',
+    sessionId: openSession?.id,
+    scannerId: openSession?.scanner_id,
+    onCheckout: fetchOpenSession,
+  });
 
   useEffect(() => {
     fetchOpenSession();

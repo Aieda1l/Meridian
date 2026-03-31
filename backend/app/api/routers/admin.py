@@ -8,6 +8,10 @@
 - POST  /admin/checkout-all                    — close all open sessions
 - GET   /admin/export                          — download CSV or PDF report
 - GET   /admin/audit-log                       — paginated audit log
+- GET   /admin/geofence-zones                  — list all geofence zones
+- POST  /admin/geofence-zones                  — create a geofence zone
+- PATCH /admin/geofence-zones/{id}             — update a geofence zone
+- DELETE /admin/geofence-zones/{id}            — delete a geofence zone
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from app.core.database import get_db
 from app.core.encryption import pgp_decrypt
 from app.core.security import get_current_member, require_admin, require_admin_or_mentor
 from app.models.admin_event import AdminEvent
+from app.models.geofence_zone import GeofenceZone, scanner_geofence_zones
 from app.models.hour_warning import HourWarning
 from app.models.member import Member
 from app.models.scanner import Scanner
@@ -41,6 +46,7 @@ from app.schemas.admin import (
     SeasonOut,
     SeasonUpdate,
 )
+from app.schemas.geofence_zone import GeofenceZoneCreate, GeofenceZoneOut, GeofenceZoneUpdate
 from app.services.audit import log_event
 from app.services.export import generate_csv, generate_pdf
 
@@ -526,3 +532,169 @@ async def get_audit_log(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# Geofence Zone CRUD
+# ---------------------------------------------------------------------------
+
+def _zone_to_out(zone: GeofenceZone) -> GeofenceZoneOut:
+    import json
+    return GeofenceZoneOut(
+        id=str(zone.id),
+        name=zone.name,
+        polygon=json.loads(zone.polygon_json),
+        color=zone.color,
+        scanner_ids=[s.id for s in zone.scanners],
+        created_at=zone.created_at,
+        updated_at=zone.updated_at,
+    )
+
+
+@router.get("/geofence-zones", response_model=list[GeofenceZoneOut])
+async def list_geofence_zones(
+    admin: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[GeofenceZoneOut]:
+    """Return all geofence zones with their assigned scanners."""
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(GeofenceZone)
+        .options(selectinload(GeofenceZone.scanners))
+        .order_by(GeofenceZone.name)
+    )
+    zones = result.scalars().all()
+    return [_zone_to_out(z) for z in zones]
+
+
+@router.post("/geofence-zones", response_model=GeofenceZoneOut, status_code=status.HTTP_201_CREATED)
+async def create_geofence_zone(
+    body: GeofenceZoneCreate,
+    request: Request,
+    admin: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> GeofenceZoneOut:
+    """Create a new geofence zone."""
+    import json
+    from sqlalchemy.orm import selectinload
+
+    zone = GeofenceZone(
+        name=body.name,
+        polygon_json=json.dumps(body.polygon),
+        color=body.color,
+    )
+    db.add(zone)
+    await db.flush()
+
+    # Link scanners via association table (avoids lazy-load on async session)
+    if body.scanner_ids:
+        for sid in body.scanner_ids:
+            await db.execute(
+                scanner_geofence_zones.insert().values(scanner_id=sid, zone_id=zone.id)
+            )
+
+    await log_event(
+        db,
+        event_type="geofence_zone_created",
+        actor_id=admin.id,
+        target_id=zone.id,
+        detail={"name": body.name, "scanner_ids": body.scanner_ids},
+        ip_address=request.client.host if request.client else None,
+    )
+
+    await db.commit()
+
+    # Re-fetch with scanners eagerly loaded
+    result = await db.execute(
+        select(GeofenceZone)
+        .options(selectinload(GeofenceZone.scanners))
+        .where(GeofenceZone.id == zone.id)
+    )
+    zone = result.scalar_one()
+    return _zone_to_out(zone)
+
+
+@router.patch("/geofence-zones/{zone_id}", response_model=GeofenceZoneOut)
+async def update_geofence_zone(
+    zone_id: uuid.UUID,
+    body: GeofenceZoneUpdate,
+    request: Request,
+    admin: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> GeofenceZoneOut:
+    """Update a geofence zone's name, polygon, color, or scanner assignments."""
+    import json
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(GeofenceZone)
+        .options(selectinload(GeofenceZone.scanners))
+        .where(GeofenceZone.id == zone_id)
+    )
+    zone = result.scalar_one_or_none()
+    if zone is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found")
+
+    if body.name is not None:
+        zone.name = body.name
+    if body.polygon is not None:
+        zone.polygon_json = json.dumps(body.polygon)
+    if body.color is not None:
+        zone.color = body.color
+    if body.scanner_ids is not None:
+        # Clear existing associations and re-insert
+        await db.execute(
+            scanner_geofence_zones.delete().where(scanner_geofence_zones.c.zone_id == zone_id)
+        )
+        for sid in body.scanner_ids:
+            await db.execute(
+                scanner_geofence_zones.insert().values(scanner_id=sid, zone_id=zone_id)
+            )
+
+    await db.flush()
+
+    await log_event(
+        db,
+        event_type="geofence_zone_updated",
+        actor_id=admin.id,
+        target_id=zone.id,
+        detail={"name": zone.name},
+        ip_address=request.client.host if request.client else None,
+    )
+
+    await db.commit()
+
+    # Re-fetch with scanners eagerly loaded
+    result = await db.execute(
+        select(GeofenceZone)
+        .options(selectinload(GeofenceZone.scanners))
+        .where(GeofenceZone.id == zone_id)
+    )
+    zone = result.scalar_one()
+    return _zone_to_out(zone)
+
+
+@router.delete("/geofence-zones/{zone_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_geofence_zone(
+    zone_id: uuid.UUID,
+    request: Request,
+    admin: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a geofence zone."""
+    result = await db.execute(select(GeofenceZone).where(GeofenceZone.id == zone_id))
+    zone = result.scalar_one_or_none()
+    if zone is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found")
+
+    await log_event(
+        db,
+        event_type="geofence_zone_deleted",
+        actor_id=admin.id,
+        target_id=zone.id,
+        detail={"name": zone.name},
+        ip_address=request.client.host if request.client else None,
+    )
+
+    await db.delete(zone)
+    await db.commit()

@@ -29,6 +29,7 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
   }
 
   if (!res.ok) throw new Error(await res.text());
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -143,6 +144,19 @@ export const getMemberSessions = (memberId: string, page = 1, pageSize = 20, sta
 export const getMemberHours = (memberId: string) =>
   apiFetch<MemberHours>(`/members/${memberId}/hours`);
 
+// Geofence Zones
+export const getGeofenceZones = () =>
+  apiFetch<GeofenceZone[]>('/admin/geofence-zones');
+
+export const createGeofenceZone = (data: GeofenceZoneCreate) =>
+  apiFetch<GeofenceZone>('/admin/geofence-zones', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateGeofenceZone = (id: string, data: GeofenceZoneUpdate) =>
+  apiFetch<GeofenceZone>(`/admin/geofence-zones/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+
+export const deleteGeofenceZone = (id: string) =>
+  apiFetch(`/admin/geofence-zones/${id}`, { method: 'DELETE' });
+
 export const getAuditLog = (page = 1, pageSize = 50, eventType?: string) => {
   const qs = eventType ? `&event_type=${eventType}` : '';
   return apiFetch<AuditLogPage>(`/admin/audit-log?page=${page}&page_size=${pageSize}${qs}`);
@@ -256,6 +270,30 @@ export interface MemberHours {
   daily_cap: number;
   weekly_cap: number;
   season_cap: number;
+}
+
+export interface GeofenceZone {
+  id: string;
+  name: string;
+  polygon: Array<{ lat: number; lng: number }>;
+  color: string;
+  scanner_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GeofenceZoneCreate {
+  name: string;
+  polygon: Array<{ lat: number; lng: number }>;
+  color: string;
+  scanner_ids: string[];
+}
+
+export interface GeofenceZoneUpdate {
+  name?: string;
+  polygon?: Array<{ lat: number; lng: number }>;
+  color?: string;
+  scanner_ids?: string[];
 }
 
 export interface AuditLogEntry {
