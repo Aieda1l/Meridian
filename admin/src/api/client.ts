@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export async function apiFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+export async function apiFetch<T = unknown>(path: string, options: RequestInit = {}, _retried = false): Promise<T> {
   const token = localStorage.getItem('admin_access_token');
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -14,6 +14,11 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
   });
 
   if (res.status === 401) {
+    if (_retried) {
+      localStorage.removeItem('admin_access_token');
+      window.location.href = '/admin/login';
+      throw new Error('Session expired');
+    }
     const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
@@ -21,7 +26,7 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
     if (refreshRes.ok) {
       const { access_token } = await refreshRes.json();
       localStorage.setItem('admin_access_token', access_token);
-      return apiFetch<T>(path, options);
+      return apiFetch<T>(path, options, true);
     }
     localStorage.removeItem('admin_access_token');
     window.location.href = '/admin/login';

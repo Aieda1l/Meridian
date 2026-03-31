@@ -55,7 +55,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       // Decode member id from JWT payload
-      const payload = JSON.parse(atob(token.split('.')[1]));
+      const parts = token.split('.');
+      if (parts.length !== 3) throw new Error('Invalid token structure');
+      let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const pad = base64.length % 4;
+      if (pad) base64 += '='.repeat(4 - pad);
+      const payload = JSON.parse(window.atob(base64));
       const data = await apiFetch<User>(`/members/${payload.sub}`);
       setUser(data);
       cacheUser(data);

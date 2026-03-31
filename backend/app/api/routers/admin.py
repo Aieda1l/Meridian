@@ -204,8 +204,7 @@ async def create_season(
         now = datetime.now(timezone.utc)
         from app.services.checkout import close_session
         for sess in open_sessions:
-            close_session(sess, CheckOutMethod.auto_timeout, now)
-            sess.flag_reason = "season_rollover"
+            close_session(sess, CheckOutMethod.auto_timeout, now, flag_reason="season_rollover")
 
     # Create new season
     new_season = Season(
@@ -280,7 +279,7 @@ async def update_season(
         ip_address=request.client.host if request.client else None,
     )
 
-    await db.commit()
+    await db.flush()
     await db.refresh(season)
 
     return SeasonOut(
@@ -334,7 +333,7 @@ async def force_checkout_session(
         ip_address=request.client.host if request.client else None,
     )
 
-    await db.commit()
+    await db.flush()
 
     return ForceCheckoutResponse(
         session_id=str(session.id),
@@ -421,9 +420,12 @@ async def export_report(
     # Build session dicts and accumulate member totals
     sessions: list[dict] = []
     totals_map: dict[str, dict] = {}  # member_number -> {name, total_minutes}
+    name_cache: dict[str, str] = {}
 
     for sess, mem in rows:
-        name = await pgp_decrypt(db, mem.name_encrypted) if mem.name_encrypted else ""
+        if mem.id not in name_cache:
+            name_cache[mem.id] = await pgp_decrypt(db, mem.name_encrypted) if mem.name_encrypted else ""
+        name = name_cache[mem.id]
         dur = sess.duration_minutes or 0
 
         sessions.append({
@@ -601,7 +603,7 @@ async def create_geofence_zone(
         ip_address=request.client.host if request.client else None,
     )
 
-    await db.commit()
+    await db.flush()
 
     # Re-fetch with scanners eagerly loaded
     result = await db.execute(
@@ -661,7 +663,7 @@ async def update_geofence_zone(
         ip_address=request.client.host if request.client else None,
     )
 
-    await db.commit()
+    await db.flush()
 
     # Re-fetch with scanners eagerly loaded
     result = await db.execute(
@@ -696,4 +698,4 @@ async def delete_geofence_zone(
     )
 
     await db.delete(zone)
-    await db.commit()
+    await db.flush()

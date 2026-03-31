@@ -5,14 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from sqlalchemy import and_, select
 
 from app.api.routers.admin import router as admin_router
 from app.api.routers.auth import router as auth_router
@@ -26,7 +23,6 @@ from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.rate_limit import limiter
 from app.core.redis import redis as redis_client
-from app.models.session import CheckOutMethod, Session, SessionStatus
 from app.services.audit import log_event
 
 logger = logging.getLogger("meridian.autotimeout")
@@ -47,9 +43,10 @@ async def _auto_timeout_loop():
         try:
             async with async_session_factory() as db:
                 await run_auto_timeout(db, redis_client)
+                await db.commit()
             current_interval = AUTOTIMEOUT_INTERVAL  # Reset on success
         except Exception:
-            logger.exception(f"Auto-timeout loop error, retrying in {current_interval}s")
+            logger.exception("Auto-timeout loop error, retrying in %ds", current_interval)
             current_interval = min(current_interval * 2, 300)
 
 
@@ -82,8 +79,8 @@ if settings.CORS_ORIGINS:
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Scanner-Key", "X-Cron-Secret"],
     )
 
 

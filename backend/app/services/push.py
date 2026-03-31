@@ -15,6 +15,21 @@ import jwt as pyjwt
 
 from app.core.config import settings
 
+_apns_client: httpx.AsyncClient | None = None
+_fcm_client: httpx.AsyncClient | None = None
+
+def _get_apns_client() -> httpx.AsyncClient:
+    global _apns_client
+    if _apns_client is None:
+        _apns_client = httpx.AsyncClient(http2=True, timeout=10.0)
+    return _apns_client
+
+def _get_fcm_client() -> httpx.AsyncClient:
+    global _fcm_client
+    if _fcm_client is None:
+        _fcm_client = httpx.AsyncClient(timeout=10.0)
+    return _fcm_client
+
 
 # ---------------------------------------------------------------------------
 # APNs (Apple Push Notification service)
@@ -71,12 +86,12 @@ async def send_apns_push(device_token: str, payload: dict | None = None) -> bool
 
     body = payload or {"aps": {"content-available": 1}}
 
-    async with httpx.AsyncClient(http2=True) as client:
-        try:
-            resp = await client.post(url, headers=headers, json=body, timeout=10.0)
-            return resp.status_code == 200
-        except Exception:
-            return False
+    client = _get_apns_client()
+    try:
+        resp = await client.post(url, headers=headers, json=body)
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -105,16 +120,16 @@ async def _get_fcm_token() -> str:
 
     assertion = pyjwt.encode(payload, sa_json["private_key"], algorithm="RS256")
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-                "assertion": assertion,
-            },
-        )
-        resp.raise_for_status()
-        token = resp.json()["access_token"]
+    client = _get_fcm_client()
+    resp = await client.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": assertion,
+        },
+    )
+    resp.raise_for_status()
+    token = resp.json()["access_token"]
 
     _fcm_token_cache["token"] = (token, time.time())
     return token
@@ -149,17 +164,16 @@ async def send_fcm_push(
     if data:
         message["data"] = data
 
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(
-                url,
-                headers={"Authorization": f"Bearer {access_token}"},
-                json={"message": message},
-                timeout=10.0,
-            )
-            return resp.status_code == 200
-        except Exception:
-            return False
+    client = _get_fcm_client()
+    try:
+        resp = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={"message": message},
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------

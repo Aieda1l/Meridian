@@ -52,7 +52,7 @@ async def run_auto_timeout(db: AsyncSession, redis_client: Redis) -> List[str]:
             res = await db.execute(
                 select(Session)
                 .where(Session.id == sid, Session.status == SessionStatus.open)
-                .with_for_update(nowait=True)
+                .with_for_update()
             )
             locked_session = res.scalar_one_or_none()
             if locked_session:
@@ -71,6 +71,9 @@ async def run_auto_timeout(db: AsyncSession, redis_client: Redis) -> List[str]:
         geo_sessions = geo_result.all()
 
         for sid, member_id in geo_sessions:
+            if str(sid) in closed_ids:
+                continue
+
             grace_key = f"{GRACE_KEY_PREFIX}{member_id}"
             key_exists = await redis_client.exists(grace_key)
 
@@ -84,7 +87,7 @@ async def run_auto_timeout(db: AsyncSession, redis_client: Redis) -> List[str]:
                         Session.status == SessionStatus.open,
                         Session.geofence_exit_at.is_not(None),
                     )
-                    .with_for_update(nowait=True)
+                    .with_for_update()
                 )
                 locked_session = res.scalar_one_or_none()
                 if locked_session and locked_session.geofence_exit_at is not None:
@@ -94,7 +97,7 @@ async def run_auto_timeout(db: AsyncSession, redis_client: Redis) -> List[str]:
                     if checkout_time > now:
                         checkout_time = now
 
-                    close_session(locked_session, CheckOutMethod.geofence, checkout_time)
+                    close_session(locked_session, CheckOutMethod.geofence, checkout_time, flag_reason="geofence_auto")
                     closed_ids.append(str(locked_session.id))
                     
                     await log_event(
@@ -105,12 +108,11 @@ async def run_auto_timeout(db: AsyncSession, redis_client: Redis) -> List[str]:
                     )
 
         if closed_ids:
-            await db.commit()
             logger.info("Auto-timeout closed %d session(s): %s", len(closed_ids), closed_ids)
 
     except Exception:
         logger.exception("Auto-timeout execution error")
-        await db.rollback()
+        raise
     finally:
         # Unlock for concurrent safety
         await redis_client.delete(LOCK_KEY)

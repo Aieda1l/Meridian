@@ -113,7 +113,7 @@ class Settings(BaseSettings):
             return []
         return json.loads(self.GEOFENCE_POLYGON)
 
-    @field_validator("PGP_SYM_KEY", "JWT_SECRET", "NFC_HMAC_SECRET", mode="after")
+    @field_validator("PGP_SYM_KEY", "JWT_SECRET", "NFC_HMAC_SECRET", "CRON_SECRET", "SCANNER_API_KEY", mode="after")
     @classmethod
     def _check_not_empty(cls, v: str, info) -> str:
         if not v:

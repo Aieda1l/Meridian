@@ -72,7 +72,7 @@ async def login(
         await log_event(
             db,
             event_type="auth_login_failed",
-            detail={"email_hash": hashed_email},
+            detail={"email_hash_prefix": hashed_email[:8]},
             ip_address=request.client.host if request.client else None,
         )
         raise HTTPException(

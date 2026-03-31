@@ -151,20 +151,29 @@ async def require_admin_or_mentor(
 # FastAPI dependency — scanner API-key auth
 # ---------------------------------------------------------------------------
 
+_scanner_auth_cache: dict[str, str] = {}  # Map: raw_key -> scanner_id
+
 async def get_current_scanner(
     x_scanner_key: Annotated[str, Header()],
     db: AsyncSession = Depends(get_db),
 ) -> Scanner:
     """Dependency: authenticates a scanner via its API key in X-Scanner-Key header.
 
-    Compares the raw key against bcrypt hashes stored in the scanners table.
-    This is O(n) over scanners — acceptable since there are very few scanners.
+    Uses an in-memory cache mapped to the authenticated scanner_id to bypass O(n) bcrypt.
     """
+    if x_scanner_key in _scanner_auth_cache:
+        cached_id = _scanner_auth_cache[x_scanner_key]
+        result = await db.execute(select(Scanner).where(Scanner.id == cached_id))
+        scanner = result.scalar_one_or_none()
+        if scanner:
+            return scanner
+
     result = await db.execute(select(Scanner))
     scanners = result.scalars().all()
 
     for scanner in scanners:
         if bcrypt.checkpw(x_scanner_key.encode(), scanner.api_key_hashed.encode()):
+            _scanner_auth_cache[x_scanner_key] = str(scanner.id)
             return scanner
 
     raise HTTPException(

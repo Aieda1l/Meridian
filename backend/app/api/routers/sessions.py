@@ -33,7 +33,7 @@ from app.schemas.session import (
     SelfReportRequest,
 )
 from app.services.audit import log_event
-from app.services.checkout import _calculate_duration_minutes
+from app.services.checkout import calculate_duration_minutes
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -212,7 +212,7 @@ async def approve_session(
     # If this is a self-reported checkout, apply its requested checkout time and duration
     if session.flag_reason == "self_reported_checkout" and session.self_report_checkout_at is not None:
         session.check_out_at = session.self_report_checkout_at
-        session.duration_minutes = _calculate_duration_minutes(
+        session.duration_minutes = calculate_duration_minutes(
             session.check_in_at, session.self_report_checkout_at
         )
 
@@ -296,7 +296,7 @@ async def self_report_checkout(
     session.check_out_method = CheckOutMethod.self_report
     session.status = SessionStatus.flagged
     session.flag_reason = "self_reported_checkout"
-    session.duration_minutes = _calculate_duration_minutes(
+    session.duration_minutes = calculate_duration_minutes(
         session.check_in_at, body.checkout_at
     )
 

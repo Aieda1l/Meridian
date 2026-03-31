@@ -1,10 +1,9 @@
 """Session checkout central utility."""
 
 from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.session import Session, CheckOutMethod, SessionStatus
 
-def _calculate_duration_minutes(check_in_at: datetime, check_out_at: datetime) -> int:
+def calculate_duration_minutes(check_in_at: datetime, check_out_at: datetime) -> int:
     """Return the duration in whole minutes between two timestamps."""
     delta = (check_out_at - check_in_at).total_seconds()
     return max(int(delta // 60), 0)
@@ -16,4 +15,4 @@ def close_session(session: Session, method: CheckOutMethod, checkout_at: datetim
     session.status = SessionStatus.flagged if flag_reason else SessionStatus.closed
     if flag_reason:
         session.flag_reason = flag_reason
-    session.duration_minutes = _calculate_duration_minutes(session.check_in_at, checkout_at)
+    session.duration_minutes = calculate_duration_minutes(session.check_in_at, checkout_at)

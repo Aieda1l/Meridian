@@ -73,10 +73,10 @@ async def compute_member_hours(
 
     if open_check_in:
         elapsed_minutes = (now - open_check_in).total_seconds() / 60.0
-        if open_check_in >= today_start:
-            minutes_today += elapsed_minutes
-        if open_check_in >= week_start:
-            minutes_week += elapsed_minutes
+        today_elapsed = max(0.0, (now - max(open_check_in, today_start)).total_seconds() / 60.0)
+        week_elapsed = max(0.0, (now - max(open_check_in, week_start)).total_seconds() / 60.0)
+        minutes_today += today_elapsed
+        minutes_week += week_elapsed
         minutes_season += elapsed_minutes
 
     return (

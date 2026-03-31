@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from reportlab.lib import colors
@@ -94,7 +94,7 @@ def generate_pdf(
     # Header
     elements.append(Paragraph(f"<b>{settings.TEAM_NAME}</b>", styles["Title"]))
     elements.append(Paragraph(f"Season: {season_name}", styles["Heading2"]))
-    elements.append(Paragraph(f"Exported: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", styles["Normal"]))
+    elements.append(Paragraph(f"Exported: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", styles["Normal"]))
     elements.append(Spacer(1, 0.3*inch))
 
     # Session table

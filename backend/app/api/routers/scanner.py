@@ -37,6 +37,7 @@ from app.schemas.scanner import (
     ScanRequest,
 )
 from app.services.audit import log_event
+from app.services.checkout import close_session
 from app.services.hour_caps import evaluate_hour_caps
 from app.services.hours import compute_member_hours
 from app.services.scan_validation import validate_nfc_payload, validate_totp_code
@@ -314,11 +315,6 @@ async def scanner_cache(
             "id": str(m.id),
             "pass_serial": str(m.pass_serial) if m.pass_serial else None,
             "member_number": m.member_number,
-            "totp_secret_encrypted_b64": (
-                base64.b64encode(m.totp_secret_encrypted).decode()
-                if m.totp_secret_encrypted
-                else None
-            ),
         }
         members_data.append(entry)
 
@@ -326,9 +322,6 @@ async def scanner_cache(
         "cache_version": scanner.offline_cache_version,
         "members": members_data,
     }
-
-    # Sign the response with HMAC
-    import json
 
     payload_bytes = json.dumps(payload, sort_keys=True).encode()
     signature = hmac.new(
@@ -398,7 +391,7 @@ async def scanner_flush_queue(
                 skipped += 1
                 continue
 
-            season = await _get_active_season(db)
+            season = await get_active_season(db)
 
             if event.action == "checkin":
                 # Check for conflicting open session at that time
@@ -414,7 +407,7 @@ async def scanner_flush_queue(
                         )
                     )
                 )
-                if conflict_result.scalar_one_or_none() is not None:
+                if conflict_result.scalars().first() is not None:
                     skipped += 1
                     continue
 
@@ -450,7 +443,6 @@ async def scanner_flush_queue(
                     skipped += 1
                     continue
 
-                from app.services.checkout import close_session
                 close_session(open_session, CheckOutMethod(event.method), event.timestamp)
 
                 if event.selfie_base64:
@@ -459,8 +451,8 @@ async def scanner_flush_queue(
                     )
                 processed += 1
 
-        except Exception as exc:
-            errors.append(f"Event {idx}: {str(exc)}")
+        except Exception:
+            errors.append(f"Event {idx}: processing error")
             skipped += 1
 
     await db.flush()

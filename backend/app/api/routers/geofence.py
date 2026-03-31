@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from shapely.geometry import Point, Polygon
@@ -74,7 +76,8 @@ def _is_inside_any_polygon(
     zone_polygons: list[dict], latitude: float, longitude: float,
 ) -> bool:
     """Return True if the point falls inside any zone polygon + buffer."""
-    buffer_degrees = settings.GEOFENCE_BUFFER_METERS / 111320
+    lat_rad = math.radians(latitude)
+    buffer_degrees = settings.GEOFENCE_BUFFER_METERS / (111320 * math.cos(lat_rad))
     point = Point(longitude, latitude)
     for zp in zone_polygons:
         coords = [(pt["lng"], pt["lat"]) for pt in zp["polygon"]]
@@ -105,9 +108,9 @@ async def geofence_exit(
         select(Session).where(
             Session.member_id == member.id,
             Session.status == SessionStatus.open,
-        )
+        ).order_by(Session.check_in_at.desc()).limit(1)
     )
-    session = result.scalar_one_or_none()
+    session = result.scalars().first()
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -129,6 +132,14 @@ async def geofence_exit(
         )
 
     grace_key = f"{GRACE_KEY_PREFIX}{member.id}"
+    existing = await redis.exists(grace_key)
+    if existing:
+        ttl = await redis.ttl(grace_key)
+        return {
+            "status": "grace_period_active",
+            "grace_period_remaining_seconds": ttl,
+        }
+
     await redis.set(
         grace_key,
         str(session.id),
@@ -144,9 +155,9 @@ async def geofence_exit(
         actor_id=member.id,
         detail={
             "session_id": str(session.id),
-            "latitude": body.latitude,
-            "longitude": body.longitude,
-            "accuracy_meters": body.accuracy_meters,
+            "latitude": round(body.latitude, 2),
+            "longitude": round(body.longitude, 2),
+            "accuracy_meters": round(body.accuracy_meters),
         },
     )
 
@@ -189,10 +200,16 @@ async def geofence_return(
         select(Session).where(
             Session.member_id == member.id,
             Session.status == SessionStatus.open,
-        )
+        ).order_by(Session.check_in_at.desc()).limit(1)
     )
-    session = result.scalar_one_or_none()
+    session = result.scalars().first()
     if session is not None:
+        zone_polygons = await _get_zones_for_scanner(db, session.scanner_id)
+        if not _is_inside_any_polygon(zone_polygons, body.latitude, body.longitude):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Location is outside shop boundary — return not confirmed",
+            )
         session.geofence_exit_at = None
         await db.flush()
 
@@ -207,17 +224,37 @@ async def geofence_checkout(
 ):
     """Close the member's open session after the grace period expired."""
 
-    result = await db.execute(
-        select(Session).where(
-            Session.member_id == member.id,
-            Session.status == SessionStatus.open,
+    try:
+        result = await db.execute(
+            select(Session).where(
+                Session.member_id == member.id,
+                Session.status == SessionStatus.open,
+            ).order_by(Session.check_in_at.desc()).limit(1).with_for_update(nowait=True)
         )
-    )
-    session = result.scalar_one_or_none()
+        session = result.scalars().first()
+    except OperationalError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session is currently locked by another process",
+        )
+        
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active session found",
+        )
+
+    if session.geofence_exit_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No geofence exit recorded for this session",
+        )
+
+    grace_key = f"{GRACE_KEY_PREFIX}{member.id}"
+    if await redis.exists(grace_key):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Grace period has not expired yet",
         )
 
     from app.services.checkout import close_session
@@ -226,7 +263,6 @@ async def geofence_checkout(
     await db.flush()
 
     # Clean up any lingering grace key
-    grace_key = f"{GRACE_KEY_PREFIX}{member.id}"
     await redis.delete(grace_key)
 
     await log_event(

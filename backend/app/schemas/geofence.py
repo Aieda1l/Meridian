@@ -12,6 +12,9 @@ class GeofenceExitRequest(BaseModel):
 
 class GeofenceReturnRequest(BaseModel):
     member_id: str
+    latitude: float
+    longitude: float
+    accuracy_meters: float
 
 
 class GeofenceConfigResponse(BaseModel):

@@ -11,6 +11,8 @@ Apple endpoints follow the protocol spec exactly:
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -110,8 +112,22 @@ async def _generate_pkpass_for_member(
 
     # Decrypt TOTP secret to derive NFC payload
     totp_secret = ""
+    auth_token = ""
     if member.totp_secret_encrypted:
         totp_secret = await pgp_decrypt(db, member.totp_secret_encrypted)
+        
+        # Derive stable auth token from TOTP
+        auth_token = hmac.new(
+            settings.NFC_HMAC_SECRET.encode(),
+            totp_secret.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        if member.pass_auth_token_hashed is None:
+            member.pass_auth_token_hashed = bcrypt.hashpw(
+                auth_token.encode(), bcrypt.gensalt()
+            ).decode()
+            await db.flush()
 
     nfc_payload = generate_nfc_payload(serial_str, totp_secret)
 
@@ -121,7 +137,7 @@ async def _generate_pkpass_for_member(
         member_name=name,
         member_number=member.member_number,
         pass_serial=serial_str,
-        auth_token="",  # raw token not stored; placeholder for bundle
+        auth_token=auth_token,
         nfc_payload=nfc_payload,
         web_service_url=web_service_url,
         status_text=status_text,

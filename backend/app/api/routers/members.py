@@ -17,7 +17,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import String, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -38,7 +38,6 @@ from app.schemas.member import (
 from app.services.audit import log_event
 from app.services.hours import compute_member_hours
 from app.services.season import get_active_season
-from sqlalchemy import String
 
 router = APIRouter(prefix="/members", tags=["members"])
 
@@ -183,7 +182,9 @@ async def update_member(
         changes["name"] = "updated"
 
     if body.email is not None:
+        from app.core.security import hash_email
         member.email_encrypted = await pgp_encrypt(db, body.email)
+        member.email_hash = hash_email(body.email)
         changes["email"] = "updated"
 
     if body.phone is not None:
