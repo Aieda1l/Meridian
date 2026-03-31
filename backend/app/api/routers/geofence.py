@@ -180,7 +180,10 @@ async def geofence_return(
             detail="Grace period has expired",
         )
 
-    await redis.delete(grace_key)
+    # CRITICAL: We DO NOT violently delete the grace_key here!
+    # If the background timeout loop iterates simultaneously, we want redis.exists(grace_key)
+    # to evaluate True to protect this session from being auto-checked out mid-transaction.
+    # The key will safely expire naturally.
 
     result = await db.execute(
         select(Session).where(

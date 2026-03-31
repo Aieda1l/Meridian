@@ -330,58 +330,10 @@ async def auto_timeout_sessions(
             detail="Invalid cron secret",
         )
 
-    now = datetime.now(timezone.utc)
-    timed_out_ids: list[str] = []
-
-    # ── 1. Auto-timeout: open sessions older than 12 hours ────────────────
-    cutoff = now - timedelta(hours=12)
-    result = await db.execute(
-        select(Session).where(
-            and_(
-                Session.status == SessionStatus.open,
-                Session.check_in_at <= cutoff,
-            )
-        )
-    )
-    stale_sessions = result.scalars().all()
-
-    from app.services.checkout import close_session
-    for session in stale_sessions:
-        close_session(session, CheckOutMethod.auto_timeout, now)
-        session.status = SessionStatus.flagged
-        session.flag_reason = "auto_timeout"
-        timed_out_ids.append(str(session.id))
-
-    # ── 2. Geofence grace period expiry ───────────────────────────────────
-    # Find open sessions with geofence_exit_at set, then check Redis for
-    # the grace period key. If the key has expired (doesn't exist), close
-    # the session with geofence checkout method.
-    geo_result = await db.execute(
-        select(Session).where(
-            and_(
-                Session.status == SessionStatus.open,
-                Session.geofence_exit_at.is_not(None),
-            )
-        )
-    )
-    geo_sessions = geo_result.scalars().all()
-
-    grace_period = settings.GEOFENCE_GRACE_PERIOD_SECONDS
-
-    from app.api.routers.geofence import GRACE_KEY_PREFIX
-
-    for session in geo_sessions:
-        grace_key = f"{GRACE_KEY_PREFIX}{session.member_id}"
-        key_exists = await redis_client.exists(grace_key)
-
-        if not key_exists:
-            checkout_time = session.geofence_exit_at + timedelta(seconds=grace_period)  # type: ignore[operator]
-            close_session(session, CheckOutMethod.geofence, checkout_time)
-            timed_out_ids.append(str(session.id))
-
-    await db.flush()
+    from app.services.timeout import run_auto_timeout
+    closed_ids = await run_auto_timeout(db, redis_client)
 
     return AutoTimeoutResponse(
-        timed_out_count=len(timed_out_ids),
-        session_ids=timed_out_ids,
+        timed_out_count=len(closed_ids),
+        session_ids=closed_ids,
     )
