@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
 from . import styles
 from .api_client import ApiClient
 from .config import ScannerConfig
+from .exceptions import ApiError
 from .nfc_reader import NfcReaderThread
 from .offline import OfflineManager
 from .qr_reader import QrReaderThread
@@ -57,6 +58,16 @@ from .shadows import (
 )
 from .simulator_dialog import SimulatorDialog
 from .widgets import EventLogWidget, NeoButton, NeoCard, StatusPill
+
+# ───────────────────────────────────────────────────────────────────────
+# Timing constants
+# ───────────────────────────────────────────────────────────────────────
+
+SUCCESS_DISPLAY_MS = 4000          # How long to show the success/error card
+HEARTBEAT_INTERVAL_MS = 30_000     # API heartbeat interval
+QUEUE_FLUSH_INTERVAL_MS = 60_000   # Offline queue flush interval
+INITIAL_HEARTBEAT_DELAY_MS = 1000  # Delay before first heartbeat
+THREAD_STOP_TIMEOUT_MS = 5000      # Max wait for threads to stop
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -367,12 +378,12 @@ class MainWindow(QWidget):
     def _start_timers(self) -> None:
         self._heartbeat_timer = QTimer(self)
         self._heartbeat_timer.timeout.connect(self._do_heartbeat)
-        self._heartbeat_timer.start(30_000)
-        QTimer.singleShot(1000, self._do_heartbeat)
+        self._heartbeat_timer.start(HEARTBEAT_INTERVAL_MS)
+        QTimer.singleShot(INITIAL_HEARTBEAT_DELAY_MS, self._do_heartbeat)
 
         self._flush_timer = QTimer(self)
         self._flush_timer.timeout.connect(self._flush_offline_queue)
-        self._flush_timer.start(60_000)
+        self._flush_timer.start(QUEUE_FLUSH_INTERVAL_MS)
 
     # ================================================================= Scan handling
 
@@ -403,9 +414,8 @@ class MainWindow(QWidget):
             name = result.get("member_name", "Member")
             self._show_success(name, "Checked In")
             self._event_log.add_event(f"\u2714  {name} checked in", success=True)
-        except Exception as checkin_err:
-            err_text = str(checkin_err)
-            if "409" in err_text:
+        except ApiError as checkin_err:
+            if checkin_err.status_code == 409:
                 try:
                     result = self.api.checkout(serial, nfc_payload, totp_code, method, selfie_b64)
                     name = result.get("member_name", "Member")
@@ -416,8 +426,10 @@ class MainWindow(QWidget):
                     self._handle_scan_error(checkout_err, serial, method, nfc_payload, totp_code, selfie_b64, "checkout")
             else:
                 self._handle_scan_error(checkin_err, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
+        except Exception as checkin_err:
+            self._handle_scan_error(checkin_err, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
 
-        QTimer.singleShot(4000, self._return_to_idle)
+        QTimer.singleShot(SUCCESS_DISPLAY_MS, self._return_to_idle)
 
     def _handle_scan_error(self, err, serial, method, nfc_payload, totp_code, selfie_b64, action) -> None:
         err_text = str(err)
@@ -479,8 +491,8 @@ class MainWindow(QWidget):
             cache_data = self.api.fetch_cache()
             self.offline.save_cache(cache_data)
             self._cache_version = cache_data.get("cache_version", self._cache_version + 1)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._event_log.add_event(f"\u26A0  Cache refresh failed: {exc}", success=False)
 
     def _flush_offline_queue(self) -> None:
         if not self._online:
@@ -496,8 +508,8 @@ class MainWindow(QWidget):
             self._update_queue_pill()
             processed = result.get("processed", 0)
             self._event_log.add_event(f"\u2191  Synced {processed} offline events", success=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._event_log.add_event(f"\u26A0  Queue flush failed: {exc}", success=False)
 
     def _update_queue_pill(self) -> None:
         count = self.offline.queue_count
@@ -541,6 +553,7 @@ class MainWindow(QWidget):
             self._nfc_thread.stop()
             self._qr_thread.stop()
             self.api.close()
+            self.offline.close()
             self.api = ApiClient(self.config)
             self.offline = OfflineManager(self.config.offline_cache_path, self.config.api_key or "dev")
             self._start_threads()
@@ -551,4 +564,5 @@ class MainWindow(QWidget):
         self._nfc_thread.stop()
         self._qr_thread.stop()
         self.api.close()
+        self.offline.close()
         super().closeEvent(event)

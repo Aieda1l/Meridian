@@ -26,6 +26,7 @@ Full-stack attendance tracking system for FRC robotics teams. Members check in a
 | **Admin Dashboard** | React 18, Vite, TypeScript, Tailwind CSS |
 | **Member PWA** | React 18, Vite, TypeScript, Tailwind CSS, Capacitor.js |
 | **Scanner Kiosk** | Python, PyQt6, pyscard (NFC), OpenCV + pyzbar (QR), PyInstaller |
+| **Shared** | Shared React contexts (auth, toasts) and design tokens |
 | **Cache / Rate Limit** | Redis |
 | **Hosting** | Railway.app |
 
@@ -33,9 +34,9 @@ Full-stack attendance tracking system for FRC robotics teams. Members check in a
 
 - **NFC + QR check-in/out** — Wallet passes with HMAC-signed NFC payloads and TOTP-rotating QR codes (30s window, replay prevention via Redis)
 - **Apple Wallet & Google Wallet** — PKCS#7-signed .pkpass generation; Google Wallet REST API with JWT save links
-- **Geofencing** — Server-validated polygon boundary with configurable buffer; 90-second grace period before auto-checkout
+- **Geofencing** — Server-validated polygon boundary with configurable buffer and coordinate validation; 90-second grace period before auto-checkout
 - **Hour caps** — Daily, weekly, and season caps with 80% and 100% threshold warnings via push notifications
-- **Offline scanner mode** — AES-256-GCM encrypted local cache, SQLite event queue, automatic sync on reconnect
+- **Offline scanner mode** — AES-256-GCM encrypted local cache (random per-scanner salt), SQLite event queue with max size cap, automatic sync on reconnect
 - **Self-reported checkouts** — Members submit missed checkouts through the PWA; flagged for admin approval
 - **Auto-timeout** — Cron endpoint closes sessions open >12 hours, flagged for review
 - **Season rollover** — Admin creates new season; old sessions auto-closed, new cap counters start fresh
@@ -60,8 +61,19 @@ Meridian/
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   └── .env.example
+├── shared/                    # Shared code & design tokens
+│   ├── auth-client/           # Shared React auth context + toast provider
+│   │   ├── useAuth.tsx        # Configurable auth provider factory
+│   │   └── ToastContext.tsx   # Toast notification context
+│   ├── design-tokens.json
+│   └── neumorphism.css
 ├── scanner/                   # Windows desktop scanner kiosk
 │   ├── src/                   # PyQt6 neumorphic UI, NFC/QR readers, offline manager
+│   │   ├── api_client.py      # HTTP client with typed ApiError exceptions
+│   │   ├── exceptions.py      # ApiError for structured HTTP error handling
+│   │   ├── offline.py         # AES-GCM cache + SQLite queue (persistent conn, max size cap)
+│   │   ├── qr_reader.py       # Thread-safe QR reader with mutex-protected pause flag
+│   │   └── ...
 │   ├── config.json
 │   ├── requirements.txt
 │   └── build.spec             # PyInstaller single-exe bundling
@@ -89,11 +101,12 @@ Meridian/
 | `GET /members/{id}/sessions` | Admin/Self | Paginated session history |
 | `POST /scanner/checkin` | Scanner | NFC/QR check-in |
 | `POST /scanner/checkout` | Scanner | NFC/QR checkout + hour cap eval |
-| `GET /scanner/cache` | Scanner | Encrypted member cache snapshot |
+| `GET /scanner/cache` | Scanner | Signed member cache snapshot |
 | `POST /scanner/heartbeat` | Scanner | Connectivity + cache staleness check |
 | `POST /scanner/flush-queue` | Scanner | Sync offline events |
 | `POST /geofence/exit` | Member | Report leaving shop boundary |
 | `POST /geofence/return` | Member | Cancel pending geofence checkout |
+| `POST /geofence/checkout` | Member | Close session after grace period |
 | `GET /geofence/config` | Member | Shop polygon + grace period |
 | `GET /sessions` | Admin | Filterable session list |
 | `PATCH /sessions/{id}/approve` | Admin | Approve flagged session |
@@ -149,6 +162,7 @@ npm run dev                    # http://localhost:5174
 ```bash
 cd scanner
 pip install -r requirements.txt
+# Set api_key in config.json (never commit real keys!)
 python -m src.app
 # Or build exe: pyinstaller build.spec
 ```
@@ -168,11 +182,19 @@ For the frontend SPAs, build and serve as static files or deploy separately (Ver
 - All PII (names, emails, phones) encrypted at rest with `pgp_sym_encrypt`
 - UUIDs for all primary keys (no sequential IDs)
 - TOTP QR codes rotate every 30 seconds with replay prevention
-- NFC payloads signed with HMAC-SHA256
+- NFC payloads signed with HMAC-SHA256 and validated with proper URL parsing and strict format checks
 - JWT access tokens (15 min) + httpOnly refresh cookies (7 days)
-- Scanner API keys bcrypt-hashed in database
-- Offline cache encrypted with AES-256-GCM (key derived from scanner API key via PBKDF2)
+- Scanner API key authentication cached in Redis (SHA-256 hashed keys, 1-hour TTL — raw keys never stored)
+- Offline cache encrypted with AES-256-GCM (key derived from scanner API key via PBKDF2, random per-scanner salt)
 - Rate limiting on auth endpoints (10/min)
+- `DEBUG_SKIP_SCAN_VALIDATION` blocked in production by a model validator (rejects non-localhost DATABASE_URL)
+- Geofence coordinates validated server-side (lat/lng range checks, minimum polygon points)
+- Session state machine enforces open-to-closed transitions (prevents double-close)
+- Concurrent token refresh requests coalesced to prevent race conditions
+- API error responses parsed as structured JSON (server internals not leaked to clients)
+- Scanner kiosk uses typed `ApiError` exceptions with status codes (no string-matching on error messages)
+- QR reader thread uses mutex-protected pause flag to prevent race conditions
+- Offline event queue capped at 10,000 entries to prevent unbounded disk growth
 
 ## License
 

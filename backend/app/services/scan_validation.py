@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from urllib.parse import urlparse, parse_qs
 
 import pyotp
 from redis.asyncio import Redis
@@ -26,12 +27,17 @@ async def validate_nfc_payload(
     We recompute the HMAC using the global NFC_HMAC_SECRET and the member's
     TOTP secret (used as the per-member component) and compare.
     """
-    # Parse payload
+    # Parse payload using proper URL parsing
     try:
-        parts = nfc_payload.split("payload=")
-        if len(parts) != 2:
+        parsed = urlparse(nfc_payload)
+        params = parse_qs(parsed.query)
+        hmac_values = params.get("payload")
+        if not hmac_values or len(hmac_values) != 1:
             return False
-        received_hmac = parts[1]
+        received_hmac = hmac_values[0]
+        # HMAC-SHA256 produces a 64-character hex digest
+        if len(received_hmac) != 64:
+            return False
     except Exception:
         return False
 

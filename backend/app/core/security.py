@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.redis import get_redis
 from app.models.member import Member, MemberRole
 from app.models.scanner import Scanner
 
@@ -151,29 +152,41 @@ async def require_admin_or_mentor(
 # FastAPI dependency — scanner API-key auth
 # ---------------------------------------------------------------------------
 
-_scanner_auth_cache: dict[str, str] = {}  # Map: raw_key -> scanner_id
+_SCANNER_AUTH_CACHE_PREFIX = "scanner_auth:"
+_SCANNER_AUTH_CACHE_TTL = 3600  # 1 hour
 
 async def get_current_scanner(
     x_scanner_key: Annotated[str, Header()],
     db: AsyncSession = Depends(get_db),
+    redis_client=Depends(get_redis),
 ) -> Scanner:
     """Dependency: authenticates a scanner via its API key in X-Scanner-Key header.
 
-    Uses an in-memory cache mapped to the authenticated scanner_id to bypass O(n) bcrypt.
+    Uses a Redis cache keyed by the SHA-256 hash of the API key (never the raw
+    key) to bypass O(n) bcrypt on subsequent requests.  Cache entries expire
+    after 1 hour.
     """
-    if x_scanner_key in _scanner_auth_cache:
-        cached_id = _scanner_auth_cache[x_scanner_key]
-        result = await db.execute(select(Scanner).where(Scanner.id == cached_id))
+    key_hash = hashlib.sha256(x_scanner_key.encode()).hexdigest()
+    cache_key = f"{_SCANNER_AUTH_CACHE_PREFIX}{key_hash}"
+
+    # Check Redis cache first
+    cached_id = await redis_client.get(cache_key)
+    if cached_id:
+        cached_id_str = cached_id if isinstance(cached_id, str) else cached_id.decode()
+        result = await db.execute(select(Scanner).where(Scanner.id == cached_id_str))
         scanner = result.scalar_one_or_none()
         if scanner:
             return scanner
+        # Stale cache entry — scanner was deleted; fall through to re-check
+        await redis_client.delete(cache_key)
 
+    # Cache miss: iterate all scanners and bcrypt-compare
     result = await db.execute(select(Scanner))
     scanners = result.scalars().all()
 
     for scanner in scanners:
         if bcrypt.checkpw(x_scanner_key.encode(), scanner.api_key_hashed.encode()):
-            _scanner_auth_cache[x_scanner_key] = str(scanner.id)
+            await redis_client.setex(cache_key, _SCANNER_AUTH_CACHE_TTL, str(scanner.id))
             return scanner
 
     raise HTTPException(

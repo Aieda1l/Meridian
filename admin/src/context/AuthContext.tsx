@@ -1,98 +1,16 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { apiFetch, type Member } from '../api/client';
-
-interface AuthContextValue {
-  user: Member | null;
-  role: string;
-  loading: boolean;
-  isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
+/**
+ * Admin dashboard authentication context — delegates to the shared auth-client module.
+ */
+import { createAuthProvider, useAuth } from '../../../shared/auth-client/useAuth';
+import { apiFetch } from '../api/client';
 
 const STORAGE_KEY_TOKEN = 'admin_access_token';
 const STORAGE_KEY_USER = 'meridian_admin_user';
 
-function getCachedUser(): Member | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_USER);
-    return raw ? (JSON.parse(raw) as Member) : null;
-  } catch {
-    return null;
-  }
-}
+const { AuthProvider } = createAuthProvider({
+  storageKeyToken: STORAGE_KEY_TOKEN,
+  storageKeyUser: STORAGE_KEY_USER,
+  apiFetch,
+});
 
-function cacheUser(u: Member | null) {
-  if (u) {
-    localStorage.setItem(STORAGE_KEY_USER, JSON.stringify(u));
-  } else {
-    localStorage.removeItem(STORAGE_KEY_USER);
-  }
-}
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<Member | null>(getCachedUser);
-  const [loading, setLoading] = useState(true);
-
-  const fetchUser = useCallback(async () => {
-    const token = localStorage.getItem(STORAGE_KEY_TOKEN);
-    if (!token) {
-      setUser(null);
-      cacheUser(null);
-      setLoading(false);
-      return;
-    }
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) throw new Error('Invalid token structure');
-      let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-      const pad = base64.length % 4;
-      if (pad) base64 += '='.repeat(4 - pad);
-      const payload = JSON.parse(window.atob(base64));
-      const data = await apiFetch<Member>(`/members/${payload.sub}`);
-      setUser(data);
-      cacheUser(data);
-    } catch {
-      localStorage.removeItem(STORAGE_KEY_TOKEN);
-      setUser(null);
-      cacheUser(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchUser(); }, [fetchUser]);
-
-  const login = async (email: string, password: string) => {
-    const res = await apiFetch<{ access_token: string }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    localStorage.setItem(STORAGE_KEY_TOKEN, res.access_token);
-    await fetchUser();
-  };
-
-  const logout = () => {
-    localStorage.removeItem(STORAGE_KEY_TOKEN);
-    setUser(null);
-    cacheUser(null);
-    fetch(`${import.meta.env.VITE_API_URL || ''}/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
-    }).catch(() => {});
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, role: user?.role ?? '', loading, isAuthenticated: !!user, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
-}
+export { AuthProvider, useAuth };

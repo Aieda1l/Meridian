@@ -72,7 +72,13 @@ async def compute_member_hours(
     open_check_in = open_result.scalar_one_or_none()
 
     if open_check_in:
-        elapsed_minutes = (now - open_check_in).total_seconds() / 60.0
+        # Clip elapsed time to the season boundary so a session from a
+        # previous season doesn't inflate the current season's total.
+        season_start = datetime.combine(season.start_date, datetime.min.time()).replace(
+            tzinfo=timezone.utc
+        )
+        season_clipped = max(open_check_in, season_start)
+        elapsed_minutes = max(0.0, (now - season_clipped).total_seconds() / 60.0)
         today_elapsed = max(0.0, (now - max(open_check_in, today_start)).total_seconds() / 60.0)
         week_elapsed = max(0.0, (now - max(open_check_in, week_start)).total_seconds() / 60.0)
         minutes_today += today_elapsed

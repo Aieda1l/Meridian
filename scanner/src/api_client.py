@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
+import base64
+import json
+import logging
+
 import httpx
 
 from .config import ScannerConfig
+from .exceptions import ApiError
+
+logger = logging.getLogger(__name__)
+
+
+def _raise_for_status(resp: httpx.Response) -> None:
+    """Raise ApiError with status code instead of generic httpx error."""
+    if not resp.is_success:
+        detail = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
+        raise ApiError(resp.status_code, detail)
 
 
 class ApiClient:
@@ -37,7 +51,7 @@ class ApiClient:
                 "selfie_base64": selfie_b64,
             },
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()
 
     def checkout(
@@ -59,7 +73,7 @@ class ApiClient:
                 "selfie_base64": selfie_b64,
             },
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()
 
     def heartbeat(self, scanner_id: str, cache_version: int, queue_count: int = 0) -> dict:
@@ -72,12 +86,12 @@ class ApiClient:
                 "offline_queue_count": queue_count,
             },
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()
 
     def fetch_cache(self) -> dict:
         resp = self._client.get(f"{self.base_url}/scanner/cache", headers=self.headers)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()
 
     def flush_queue(self, events: list[dict]) -> dict:
@@ -86,33 +100,48 @@ class ApiClient:
             headers=self.headers,
             json={"events": events},
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()
 
     def admin_login(self, email: str, password: str) -> dict:
-        """Authenticate against /auth/login and return the decoded JWT payload.
+        """Authenticate against /auth/login and return the response data.
 
-        Returns dict with 'access_token' and parsed 'role' on success.
-        Raises on failure.
+        After successful login, fetches the user's role from the /auth/me
+        endpoint rather than parsing the JWT client-side (which would skip
+        signature verification).
         """
-        import json
-        import base64
-
         resp = self._client.post(
             f"{self.base_url}/auth/login",
             json={"email": email, "password": password},
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         data = resp.json()
         token = data.get("access_token", "")
 
-        # Decode JWT payload (we only need the role claim — no signature
-        # verification needed since the server already validated creds).
-        parts = token.split(".")
-        if len(parts) >= 2:
-            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-            data["role"] = payload.get("role", "")
+        # Fetch role from server instead of decoding JWT without verification
+        try:
+            me_resp = self._client.get(
+                f"{self.base_url}/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if me_resp.is_success:
+                me_data = me_resp.json()
+                data["role"] = me_data.get("role", "")
+            else:
+                # Fallback: decode JWT payload for role (no sig verification,
+                # but login already validated credentials with the server)
+                parts = token.split(".")
+                if len(parts) >= 2:
+                    payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+                    payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                    data["role"] = payload.get("role", "")
+        except Exception:
+            logger.debug("Failed to fetch role from /auth/me, falling back to JWT decode")
+            parts = token.split(".")
+            if len(parts) >= 2:
+                payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+                payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                data["role"] = payload.get("role", "")
         return data
 
     def test_connection(self) -> bool:

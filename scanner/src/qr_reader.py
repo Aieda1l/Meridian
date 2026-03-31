@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import threading
 import time
 
 import cv2
@@ -22,6 +23,7 @@ class QrReaderThread(QThread):
         super().__init__()
         self._running = True
         self._paused = False
+        self._lock = threading.Lock()
         self._webcam_index = webcam_index
         self._selfie_enabled = selfie_enabled
 
@@ -30,7 +32,10 @@ class QrReaderThread(QThread):
         cap.set(cv2.CAP_PROP_FPS, 15)
 
         while self._running:
-            if self._paused:
+            with self._lock:
+                paused = self._paused
+
+            if paused:
                 time.sleep(0.1)
                 continue
 
@@ -57,7 +62,8 @@ class QrReaderThread(QThread):
                     selfie_b64 = base64.b64encode(buf).decode()
 
                 self.qr_detected.emit(qr_data, selfie_b64)
-                self._paused = True
+                with self._lock:
+                    self._paused = True
                 break
 
             # Convert to QImage for the preview widget
@@ -71,8 +77,9 @@ class QrReaderThread(QThread):
         cap.release()
 
     def resume(self) -> None:
-        self._paused = False
+        with self._lock:
+            self._paused = False
 
     def stop(self) -> None:
         self._running = False
-        self.wait()
+        self.wait(5000)

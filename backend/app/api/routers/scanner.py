@@ -8,6 +8,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
+import logging
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -42,6 +44,8 @@ from app.services.hour_caps import evaluate_hour_caps
 from app.services.hours import compute_member_hours
 from app.services.scan_validation import validate_nfc_payload, validate_totp_code
 from app.services.season import get_active_season
+
+logger = logging.getLogger("meridian.scanner")
 
 router = APIRouter(prefix="/scanner", tags=["scanner"])
 
@@ -451,8 +455,9 @@ async def scanner_flush_queue(
                     )
                 processed += 1
 
-        except Exception:
-            errors.append(f"Event {idx}: processing error")
+        except Exception as exc:
+            logger.exception("Event %d processing failed", idx)
+            errors.append(f"Event {idx}: {type(exc).__name__}: {exc}")
             skipped += 1
 
     await db.flush()

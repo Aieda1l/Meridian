@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from shapely.geometry import Point, Polygon
@@ -224,19 +223,13 @@ async def geofence_checkout(
 ):
     """Close the member's open session after the grace period expired."""
 
-    try:
-        result = await db.execute(
-            select(Session).where(
-                Session.member_id == member.id,
-                Session.status == SessionStatus.open,
-            ).order_by(Session.check_in_at.desc()).limit(1).with_for_update(nowait=True)
-        )
-        session = result.scalars().first()
-    except OperationalError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Session is currently locked by another process",
-        )
+    result = await db.execute(
+        select(Session).where(
+            Session.member_id == member.id,
+            Session.status == SessionStatus.open,
+        ).order_by(Session.check_in_at.desc()).limit(1).with_for_update()
+    )
+    session = result.scalars().first()
         
     if session is None:
         raise HTTPException(

@@ -127,6 +127,8 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
                 })
                   .then(() => {
                     console.log('[Geofence] Exit reported — backend will auto-checkout after grace period');
+                    // Clear any existing poll timer to prevent duplicates
+                    if (pollTimer) clearInterval(pollTimer);
                     // Poll session state so UI updates when backend closes the session
                     const grace = configRef.current?.grace_period_seconds ?? 90;
                     pollTimer = setInterval(() => {

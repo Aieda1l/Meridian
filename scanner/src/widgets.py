@@ -412,6 +412,8 @@ class EventLogWidget(QWidget):
 
     # -- Public API -------------------------------------------------------
 
+    MAX_EVENT_ROWS = 200
+
     def add_event(self, text: str, success: bool = True) -> None:
         color = QColor(styles.ACCENT_GREEN) if success else QColor(styles.ACCENT_RED)
         row = _EventRow(text, color)
@@ -419,6 +421,12 @@ class EventLogWidget(QWidget):
         self._rows.append(row)
         # Insert before the stretch so rows stack top-down
         self._rows_layout.insertWidget(self._rows_layout.count() - 1, row)
+
+        # Cap event log to prevent unbounded memory growth
+        while len(self._rows) > self.MAX_EVENT_ROWS:
+            oldest = self._rows.pop(0)
+            self._rows_layout.removeWidget(oldest)
+            oldest.deleteLater()
 
         # Auto-scroll to the newest entry
         QTimer.singleShot(50, lambda: self._scroll.verticalScrollBar().setValue(

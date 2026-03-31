@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -119,6 +119,21 @@ class Settings(BaseSettings):
         if not v:
             raise ValueError(f"{info.field_name} must be set and non-empty")
         return v
+
+    @model_validator(mode="after")
+    def _block_debug_skip_in_production(self) -> "Settings":
+        """Prevent DEBUG_SKIP_SCAN_VALIDATION from being enabled in production.
+
+        Production is detected by the DATABASE_URL not pointing to localhost.
+        """
+        if self.DEBUG_SKIP_SCAN_VALIDATION:
+            db = self.DATABASE_URL
+            if "localhost" not in db and "127.0.0.1" not in db:
+                raise ValueError(
+                    "DEBUG_SKIP_SCAN_VALIDATION must not be enabled in production "
+                    "(DATABASE_URL does not point to localhost)"
+                )
+        return self
 
 
 # Singleton – import this from anywhere.

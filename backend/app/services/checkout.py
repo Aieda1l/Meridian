@@ -10,6 +10,10 @@ def calculate_duration_minutes(check_in_at: datetime, check_out_at: datetime) ->
 
 def close_session(session: Session, method: CheckOutMethod, checkout_at: datetime, *, flag_reason: str | None = None) -> None:
     """Consistently transition an open session to closed status."""
+    if session.status != SessionStatus.open:
+        raise ValueError(
+            f"Cannot close session {session.id}: status is {session.status!r}, expected 'open'"
+        )
     session.check_out_at = checkout_at
     session.check_out_method = method
     session.status = SessionStatus.flagged if flag_reason else SessionStatus.closed

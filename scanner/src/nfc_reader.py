@@ -72,4 +72,4 @@ class NfcReaderThread(QThread):
 
     def stop(self) -> None:
         self._running = False
-        self.wait()
+        self.wait(5000)
