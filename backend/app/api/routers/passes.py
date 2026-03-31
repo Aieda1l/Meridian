@@ -115,7 +115,7 @@ async def _generate_pkpass_for_member(
 
     nfc_payload = generate_nfc_payload(serial_str, totp_secret)
 
-    web_service_url = str(request.base_url).rstrip("/") if False else f"{settings.APPLE_PASS_TYPE_ID and ''}"
+    web_service_url = settings.APPLE_PASS_WEB_SERVICE_URL
 
     return generate_pkpass(
         member_name=name,
@@ -346,8 +346,14 @@ async def android_register_device(
     body: AndroidRegisterBody,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    current_member: Member = Depends(get_current_member),
 ):
     """Register an Android device for push notifications."""
+    if current_member.id != body.member_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Can only register your own device"
+        )
     result = await db.execute(
         select(Member).where(Member.id == body.member_id, Member.is_active == True)  # noqa: E712
     )
@@ -436,7 +442,7 @@ async def download_pass(
 
         # Ensure the pass object exists in Google Wallet
         await create_or_update_pass(
-            issuer_id=settings.GOOGLE_SERVICE_ACCOUNT_JSON_B64 and "",  # issuer from settings
+            issuer_id=settings.GOOGLE_WALLET_ISSUER_ID,  # issuer from settings
             member_name=name,
             member_number=member.member_number,
             pass_serial=serial_str,
@@ -445,7 +451,7 @@ async def download_pass(
         )
 
         wallet_url = generate_add_to_wallet_url(
-            issuer_id=settings.GOOGLE_SERVICE_ACCOUNT_JSON_B64 and "",
+            issuer_id=settings.GOOGLE_WALLET_ISSUER_ID,
             pass_serial=serial_str,
         )
         return {"platform": "android", "add_to_wallet_url": wallet_url}

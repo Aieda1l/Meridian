@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.hour_warning import HourWarning, WarningType
 from app.models.session import Session, SessionStatus
 from app.models.season import Season
+from app.services.hours import compute_member_hours
 
 
 async def evaluate_hour_caps(
@@ -31,20 +32,19 @@ async def evaluate_hour_caps(
         {"warning_type": str, "hours": float, "cap": float, "message": str}
     """
     now = datetime.now(timezone.utc)
-    today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
+    today_utc = now.date()
+    today_start = datetime.combine(today_utc, datetime.min.time()).replace(tzinfo=timezone.utc)
 
     weekday = now.weekday()  # 0=Mon
     week_start = datetime.combine(
-        date.today() - timedelta(days=weekday),
+        today_utc - timedelta(days=weekday),
         datetime.min.time(),
     ).replace(tzinfo=timezone.utc)
 
     warnings_to_send: list[dict] = []
 
     # Calculate hours for each period
-    hours_today = await _sum_hours(db, member_id, season.id, today_start, now)
-    hours_week = await _sum_hours(db, member_id, season.id, week_start, now)
-    hours_season = await _sum_hours(db, member_id, season.id, None, now)
+    hours_today, hours_week, hours_season = await compute_member_hours(db, member_id, season, now)
 
     # Check each cap
     cap_checks = [
@@ -93,45 +93,6 @@ async def evaluate_hour_caps(
 
     await db.flush()
     return warnings_to_send
-
-
-async def _sum_hours(
-    db: AsyncSession,
-    member_id: uuid.UUID,
-    season_id: uuid.UUID,
-    start: datetime | None,
-    end: datetime,
-) -> float:
-    """Sum closed session hours for the given period, plus any open session elapsed."""
-    filters = [
-        Session.member_id == member_id,
-        Session.season_id == season_id,
-        Session.status.in_([SessionStatus.closed, SessionStatus.approved]),
-    ]
-    if start:
-        filters.append(Session.check_in_at >= start)
-    filters.append(Session.check_in_at <= end)
-
-    result = await db.execute(
-        select(func.coalesce(func.sum(Session.duration_minutes), 0))
-        .where(and_(*filters))
-    )
-    total_minutes = result.scalar_one()
-
-    # Also check for an open session and add its elapsed time
-    open_result = await db.execute(
-        select(Session).where(
-            Session.member_id == member_id,
-            Session.season_id == season_id,
-            Session.status == SessionStatus.open,
-        )
-    )
-    open_session = open_result.scalar_one_or_none()
-    if open_session:
-        elapsed = (end - open_session.check_in_at).total_seconds() / 60.0
-        total_minutes += elapsed
-
-    return float(total_minutes) / 60.0
 
 
 async def _warning_exists(

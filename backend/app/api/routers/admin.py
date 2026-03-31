@@ -200,6 +200,7 @@ async def create_season(
                 )
             )
         )
+        open_sessions = open_sessions_result.scalars().all()
         now = datetime.now(timezone.utc)
         from app.services.checkout import close_session
         for sess in open_sessions:
@@ -229,7 +230,7 @@ async def create_season(
         ip_address=request.client.host if request.client else None,
     )
 
-    await db.commit()
+    await db.flush()
     await db.refresh(new_season)
 
     return SeasonOut(
@@ -377,7 +378,7 @@ async def checkout_all_sessions(
         ip_address=request.client.host if request.client else None,
     )
 
-    await db.commit()
+    await db.flush()
 
     return CheckoutAllResponse(closed_count=len(closed_ids), session_ids=closed_ids)
 
@@ -389,7 +390,7 @@ async def checkout_all_sessions(
 @router.get("/export")
 async def export_report(
     season_id: uuid.UUID = Query(..., description="Season to export"),
-    format: str = Query("csv", regex="^(csv|pdf)$", description="Export format: csv or pdf"),
+    format: str = Query("csv", pattern="^(csv|pdf)$", description="Export format: csv or pdf"),
     member_id: uuid.UUID | None = Query(None, description="Optional member filter"),
     columns: str | None = Query(None, description="Comma-separated column keys to include (default: all)"),
     include_summary: bool = Query(True, description="Include member hour totals summary section"),

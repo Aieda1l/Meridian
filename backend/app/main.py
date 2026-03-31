@@ -40,13 +40,17 @@ async def _auto_timeout_loop():
     Delegates to the concurrency-safe run_auto_timeout function.
     """
     from app.services.timeout import run_auto_timeout
+    
+    current_interval = AUTOTIMEOUT_INTERVAL
     while True:
-        await asyncio.sleep(AUTOTIMEOUT_INTERVAL)
+        await asyncio.sleep(current_interval)
         try:
             async with async_session_factory() as db:
                 await run_auto_timeout(db, redis_client)
+            current_interval = AUTOTIMEOUT_INTERVAL  # Reset on success
         except Exception:
-            logger.exception("Auto-timeout loop error")
+            logger.exception(f"Auto-timeout loop error, retrying in {current_interval}s")
+            current_interval = min(current_interval * 2, 300)
 
 
 @asynccontextmanager

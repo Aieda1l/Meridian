@@ -38,7 +38,9 @@ from app.schemas.scanner import (
 )
 from app.services.audit import log_event
 from app.services.hour_caps import evaluate_hour_caps
+from app.services.hours import compute_member_hours
 from app.services.scan_validation import validate_nfc_payload, validate_totp_code
+from app.services.season import get_active_season
 
 router = APIRouter(prefix="/scanner", tags=["scanner"])
 
@@ -63,19 +65,6 @@ async def _get_member_by_serial(db: AsyncSession, serial: str) -> Member:
         )
     return member
 
-
-async def _get_active_season(db: AsyncSession) -> Season:
-    """Return the single active season or raise 404."""
-    result = await db.execute(
-        select(Season).where(Season.is_active == True)  # noqa: E712
-    )
-    season = result.scalar_one_or_none()
-    if season is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active season configured",
-        )
-    return season
 
 
 async def _validate_scan(
@@ -135,91 +124,6 @@ async def _validate_scan(
         )
 
 
-async def _compute_hours(
-    db: AsyncSession,
-    member_id,
-    season: Season,
-    now: datetime,
-) -> tuple[float, float, float]:
-    """Return (hours_today, hours_week, hours_season) for a member."""
-    today_start = datetime.combine(date.today(), datetime.min.time()).replace(
-        tzinfo=timezone.utc
-    )
-
-    weekday = now.weekday()
-    week_start = datetime.combine(
-        date.today() - timedelta(days=weekday),
-        datetime.min.time(),
-    ).replace(tzinfo=timezone.utc)
-
-    season_start = (
-        season.start_date
-        if isinstance(season.start_date, datetime)
-        else datetime.combine(season.start_date, datetime.min.time()).replace(
-            tzinfo=timezone.utc
-        )
-    )
-
-    async def _closed_minutes(since: datetime) -> float:
-        result = await db.execute(
-            select(func.coalesce(func.sum(Session.duration_minutes), 0)).where(
-                and_(
-                    Session.member_id == member_id,
-                    Session.season_id == season.id,
-                    Session.status != SessionStatus.open,
-                    Session.check_in_at >= since,
-                    Session.duration_minutes.is_not(None),
-                )
-            )
-        )
-        return float(result.scalar_one())
-
-    closed_today = await _closed_minutes(today_start)
-    closed_week = await _closed_minutes(week_start)
-    closed_season = await _closed_minutes(season_start)
-
-    # Check for an open session to include elapsed time
-    open_result = await db.execute(
-        select(Session).where(
-            and_(
-                Session.member_id == member_id,
-                Session.season_id == season.id,
-                Session.status == SessionStatus.open,
-            )
-        )
-    )
-    open_session = open_result.scalar_one_or_none()
-
-    open_elapsed = 0.0
-    if open_session is not None:
-        elapsed = (now - open_session.check_in_at).total_seconds() / 60.0
-        open_elapsed = max(elapsed, 0.0)
-
-    hours_today = (
-        closed_today
-        + (
-            open_elapsed
-            if open_session and open_session.check_in_at >= today_start
-            else 0.0
-        )
-    ) / 60.0
-    hours_week = (
-        closed_week
-        + (
-            open_elapsed
-            if open_session and open_session.check_in_at >= week_start
-            else 0.0
-        )
-    ) / 60.0
-    hours_season = (closed_season + open_elapsed) / 60.0
-
-    return (
-        round(hours_today, 2),
-        round(hours_week, 2),
-        round(hours_season, 2),
-    )
-
-
 # ---------------------------------------------------------------------------
 # POST /scanner/checkin
 # ---------------------------------------------------------------------------
@@ -252,7 +156,7 @@ async def scanner_checkin(
             detail="Member already has an open session",
         )
 
-    season = await _get_active_season(db)
+    season = await get_active_season(db)
     now = datetime.now(timezone.utc)
 
     new_session = Session(
@@ -357,8 +261,8 @@ async def scanner_checkout(
     )
 
     # Compute hour totals
-    season = await _get_active_season(db)
-    hours_today, hours_week, hours_season = await _compute_hours(
+    season = await get_active_season(db)
+    hours_today, hours_week, hours_season = await compute_member_hours(
         db, member.id, season, now
     )
 

@@ -136,7 +136,7 @@ async def geofence_exit(
     )
 
     session.geofence_exit_at = datetime.now(timezone.utc)
-    await db.commit()
+    await db.flush()
 
     await log_event(
         db,
@@ -194,7 +194,7 @@ async def geofence_return(
     session = result.scalar_one_or_none()
     if session is not None:
         session.geofence_exit_at = None
-        await db.commit()
+        await db.flush()
 
     return {"status": "return_confirmed"}
 
@@ -221,9 +221,9 @@ async def geofence_checkout(
         )
 
     from app.services.checkout import close_session
-    close_session(session, CheckOutMethod.geofence, datetime.now(timezone.utc))
+    close_session(session, CheckOutMethod.geofence, datetime.now(timezone.utc), flag_reason="geofence_auto")
 
-    await db.commit()
+    await db.flush()
 
     # Clean up any lingering grace key
     grace_key = f"{GRACE_KEY_PREFIX}{member.id}"

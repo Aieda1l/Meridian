@@ -73,6 +73,6 @@ async def validate_totp_code(
     if already_used:
         return False
 
-    # Mark as used with 30-second TTL
-    await redis_client.setex(replay_key, 30, "1")
+    # Mark as used with 90-second TTL
+    await redis_client.setex(replay_key, 90, "1")
     return True

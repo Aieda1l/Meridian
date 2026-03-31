@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hmac
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -32,6 +33,7 @@ from app.schemas.session import (
     SelfReportRequest,
 )
 from app.services.audit import log_event
+from app.services.checkout import _calculate_duration_minutes
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -94,10 +96,7 @@ async def _get_session_or_404(db: AsyncSession, session_id: uuid.UUID) -> Sessio
     return session
 
 
-def _calculate_duration_minutes(check_in_at: datetime, check_out_at: datetime) -> int:
-    """Return the duration in whole minutes between two timestamps."""
-    delta = (check_out_at - check_in_at).total_seconds()
-    return max(int(delta // 60), 0)
+
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +323,7 @@ async def auto_timeout_sessions(
 
     Authenticated via X-Cron-Secret header, not JWT.
     """
-    if x_cron_secret != settings.CRON_SECRET:
+    if not hmac.compare_digest(x_cron_secret.encode(), settings.CRON_SECRET.encode()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid cron secret",

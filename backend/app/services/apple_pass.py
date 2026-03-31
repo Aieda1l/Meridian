@@ -31,6 +31,7 @@ def _build_pass_json(
     pass_type_id: str,
     team_id: str,
     nfc_payload: str,
+    web_service_url: str,
     status_text: str = "Not checked in",
 ) -> dict:
     """Build the pass.json structure for an Apple Wallet generic pass."""
@@ -74,7 +75,7 @@ def _build_pass_json(
             "message": nfc_payload,
             "encryptionPublicKey": "",
         },
-        "webServiceURL": f"{settings.APPLE_PASS_TYPE_ID and ''}",
+        "webServiceURL": web_service_url,
         "authenticationToken": "",  # set per-member at generation time
     }
 
@@ -141,6 +142,7 @@ def generate_pkpass(
         pass_type_id=settings.APPLE_PASS_TYPE_ID,
         team_id=settings.APPLE_TEAM_ID,
         nfc_payload=nfc_payload,
+        web_service_url=web_service_url,
         status_text=status_text,
     )
     # Set per-member fields

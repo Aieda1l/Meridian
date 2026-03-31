@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     APPLE_PASS_WWDR_B64: str = ""
     APPLE_PASS_TYPE_ID: str = ""
     APPLE_TEAM_ID: str = ""
+    APPLE_PASS_WEB_SERVICE_URL: str = ""
 
     # ── Google Wallet service-account (base64-encoded JSON) ─────────────
     GOOGLE_SERVICE_ACCOUNT_JSON_B64: str = ""
@@ -111,6 +112,13 @@ class Settings(BaseSettings):
         if not self.GEOFENCE_POLYGON.strip():
             return []
         return json.loads(self.GEOFENCE_POLYGON)
+
+    @field_validator("PGP_SYM_KEY", "JWT_SECRET", "NFC_HMAC_SECRET", mode="after")
+    @classmethod
+    def _check_not_empty(cls, v: str, info) -> str:
+        if not v:
+            raise ValueError(f"{info.field_name} must be set and non-empty")
+        return v
 
 
 # Singleton – import this from anywhere.

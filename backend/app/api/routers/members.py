@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.encryption import pgp_decrypt, pgp_encrypt
 from app.core.security import get_current_member, require_admin
@@ -35,6 +36,9 @@ from app.schemas.member import (
     SessionOut,
 )
 from app.services.audit import log_event
+from app.services.hours import compute_member_hours
+from app.services.season import get_active_season
+from sqlalchemy import String
 
 router = APIRouter(prefix="/members", tags=["members"])
 
@@ -86,16 +90,7 @@ async def _get_member_or_404(db: AsyncSession, member_id: uuid.UUID) -> Member:
     return member
 
 
-async def _get_active_season(db: AsyncSession) -> Season:
-    """Return the single active season or raise 404."""
-    result = await db.execute(select(Season).where(Season.is_active == True))  # noqa: E712
-    season = result.scalar_one_or_none()
-    if season is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active season configured",
-        )
-    return season
+
 
 
 # ---------------------------------------------------------------------------
@@ -117,14 +112,34 @@ async def list_members(
     # Paginated query
     offset = (page - 1) * page_size
     result = await db.execute(
-        select(Member)
+        select(
+            Member,
+            func.pgp_sym_decrypt(Member.name_encrypted, settings.PGP_SYM_KEY).cast(String).label("name_dec"),
+            func.pgp_sym_decrypt(Member.email_encrypted, settings.PGP_SYM_KEY).cast(String).label("email_dec"),
+            func.pgp_sym_decrypt(Member.phone_encrypted, settings.PGP_SYM_KEY).cast(String).label("phone_dec"),
+        )
         .order_by(Member.member_number)
         .offset(offset)
         .limit(page_size)
     )
-    members = result.scalars().all()
+    rows = result.all()
 
-    items = [await _decrypt_member(db, m) for m in members]
+    items = []
+    for m, name_dec, email_dec, phone_dec in rows:
+        items.append(MemberOut(
+            id=str(m.id),
+            member_number=m.member_number,
+            name=name_dec or "",
+            email=email_dec or "",
+            phone=phone_dec,
+            role=m.role.value,
+            is_active=m.is_active,
+            device_platform=m.device_platform.value,
+            pass_serial=str(m.pass_serial) if m.pass_serial else None,
+            photo_url=m.photo_url,
+            season_id=str(m.season_id) if m.season_id else None,
+            created_at=m.created_at,
+        ))
 
     return MemberListOut(items=items, total=total, page=page, page_size=page_size)
 
@@ -279,62 +294,12 @@ async def get_member_hours(
     """Return hour totals for the active season (today, this week, season)."""
     _require_admin_or_self(current, member_id)
     member = await _get_member_or_404(db, member_id)
-    season = await _get_active_season(db)
+    season = await get_active_season(db)
 
     now = datetime.now(timezone.utc)
-    today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
-
-    # Monday of current week
-    weekday = now.weekday()  # 0 = Monday
-    week_start = datetime.combine(
-        date.today() - timedelta(days=weekday),
-        datetime.min.time(),
-    ).replace(tzinfo=timezone.utc)
-
-    # ---- Closed session sums ----
-
-    async def _closed_minutes(since: datetime) -> float:
-        """Sum duration_minutes of closed sessions since a given timestamp."""
-        result = await db.execute(
-            select(func.coalesce(func.sum(Session.duration_minutes), 0)).where(
-                and_(
-                    Session.member_id == member_id,
-                    Session.season_id == season.id,
-                    Session.status != SessionStatus.open,
-                    Session.check_in_at >= since,
-                    Session.duration_minutes.is_not(None),
-                )
-            )
-        )
-        return float(result.scalar_one())
-
-    closed_today = await _closed_minutes(today_start)
-    closed_week = await _closed_minutes(week_start)
-    closed_season = await _closed_minutes(season.start_date if isinstance(season.start_date, datetime) else
-                                          datetime.combine(season.start_date, datetime.min.time()).replace(tzinfo=timezone.utc))
-
-    # ---- Open session elapsed time ----
-
-    open_result = await db.execute(
-        select(Session).where(
-            and_(
-                Session.member_id == member_id,
-                Session.season_id == season.id,
-                Session.status == SessionStatus.open,
-            )
-        )
+    hours_today, hours_week, hours_season = await compute_member_hours(
+        db, member_id, season, now
     )
-    open_session = open_result.scalar_one_or_none()
-
-    open_elapsed = 0.0
-    if open_session is not None:
-        elapsed = (now - open_session.check_in_at).total_seconds() / 60.0
-        open_elapsed = max(elapsed, 0.0)
-
-    # Add open-session time to relevant buckets
-    hours_today = (closed_today + (open_elapsed if open_session and open_session.check_in_at >= today_start else 0.0)) / 60.0
-    hours_week = (closed_week + (open_elapsed if open_session and open_session.check_in_at >= week_start else 0.0)) / 60.0
-    hours_season = (closed_season + open_elapsed) / 60.0
 
     return MemberHoursOut(
         member_id=str(member_id),
