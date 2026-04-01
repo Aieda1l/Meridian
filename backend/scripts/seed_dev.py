@@ -28,9 +28,14 @@ sys.path.insert(0, ".")
 
 from app.core.config import settings
 from app.models.base import Base
+from app.models.admin_event import AdminEvent
+from app.models.hour_warning import HourWarning
 from app.models.member import Member, MemberRole, DevicePlatform
 from app.models.scanner import Scanner
+from app.models.session import Session
 from app.models.season import Season
+from app.models.geofence_zone import scanner_geofence_zones
+from app.core.security import hash_email
 
 # ---------------------------------------------------------------------------
 # Seed data — edit these to taste
@@ -43,7 +48,7 @@ ADMIN_PASSWORD = "admin"  # change in production!
 
 SCANNER_ID = "MAIN_ENTRANCE"
 SCANNER_NAME = "Main Entrance Scanner"
-SCANNER_API_KEY = "12345"  # raw key — will be bcrypt-hashed
+SCANNER_API_KEY = "dev-scanner-key-12345"  # raw key — will be bcrypt-hashed
 
 SEASON_NAME = "2025-2026 Season"
 
@@ -86,6 +91,27 @@ async def seed(reset: bool = False) -> None:
     async with session_factory() as db:
         if reset:
             print("Resetting seed data …")
+            # Collect seed member IDs so we can clean up FK references
+            seed_member_ids = []
+            for mnum in (ADMIN_MEMBER_NUMBER, DEMO_MEMBER_NUMBER):
+                row = (await db.execute(
+                    select(Member.id).where(Member.member_number == mnum)
+                )).scalar_one_or_none()
+                if row:
+                    seed_member_ids.append(row)
+
+            # Delete child rows referencing seed members (FK constraints)
+            if seed_member_ids:
+                await db.execute(delete(Session).where(Session.member_id.in_(seed_member_ids)))
+                await db.execute(delete(HourWarning).where(HourWarning.member_id.in_(seed_member_ids)))
+                await db.execute(delete(AdminEvent).where(AdminEvent.actor_id.in_(seed_member_ids)))
+
+            # Delete sessions referencing the scanner (FK constraint)
+            await db.execute(delete(Session).where(Session.scanner_id == SCANNER_ID))
+            # Delete scanner-zone associations
+            await db.execute(delete(scanner_geofence_zones).where(
+                scanner_geofence_zones.c.scanner_id == SCANNER_ID
+            ))
             await db.execute(delete(Scanner).where(Scanner.id == SCANNER_ID))
             await db.execute(delete(Member).where(Member.member_number == ADMIN_MEMBER_NUMBER))
             await db.execute(delete(Member).where(Member.member_number == DEMO_MEMBER_NUMBER))
@@ -123,6 +149,7 @@ async def seed(reset: bool = False) -> None:
                 member_number=ADMIN_MEMBER_NUMBER,
                 name_encrypted=await _pgp_encrypt(db, ADMIN_NAME),
                 email_encrypted=await _pgp_encrypt(db, ADMIN_EMAIL),
+                email_hash=hash_email(ADMIN_EMAIL),
                 role=MemberRole.admin,
                 password_hashed=_hash(ADMIN_PASSWORD),
                 totp_secret_encrypted=await _pgp_encrypt_totp(db, totp_secret),
@@ -149,6 +176,7 @@ async def seed(reset: bool = False) -> None:
                 member_number=DEMO_MEMBER_NUMBER,
                 name_encrypted=await _pgp_encrypt(db, DEMO_NAME),
                 email_encrypted=await _pgp_encrypt(db, DEMO_EMAIL),
+                email_hash=hash_email(DEMO_EMAIL),
                 role=MemberRole.student,
                 password_hashed=_hash(DEMO_PASSWORD),
                 totp_secret_encrypted=await _pgp_encrypt_totp(db, demo_totp),

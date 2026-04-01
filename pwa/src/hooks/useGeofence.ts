@@ -19,7 +19,8 @@ interface GeofenceConfig {
   buffer_meters: number;
 }
 
-function isInsidePolygon(point: LatLng, polygon: LatLng[]): boolean {
+function isPointInBufferedPolygon(point: LatLng, polygon: LatLng[], bufferMeters: number): boolean {
+  // 1. Check if strictly inside
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const xi = polygon[i].lat, yi = polygon[i].lng;
@@ -29,15 +30,43 @@ function isInsidePolygon(point: LatLng, polygon: LatLng[]): boolean {
       point.lat < ((xj - xi) * (point.lng - yi)) / (yj - yi) + xi;
     if (intersect) inside = !inside;
   }
-  return inside;
+  if (inside) return true;
+
+  // 2. Check distance to edges (accounting for buffer)
+  if (bufferMeters <= 0) return false;
+  const latRad = point.lat * Math.PI / 180;
+  const bufferDegrees = bufferMeters / (111320 * Math.cos(latRad));
+  const bufferDegreesSq = bufferDegrees * bufferDegrees;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const v = polygon[j];
+    const w = polygon[i];
+    const l2 = (w.lng - v.lng) ** 2 + (w.lat - v.lat) ** 2;
+    let dx, dy;
+    if (l2 === 0) {
+      dx = point.lng - v.lng;
+      dy = point.lat - v.lat;
+    } else {
+      let t = ((point.lng - v.lng) * (w.lng - v.lng) + (point.lat - v.lat) * (w.lat - v.lat)) / l2;
+      t = Math.max(0, Math.min(1, t));
+      dx = point.lng - (v.lng + t * (w.lng - v.lng));
+      dy = point.lat - (v.lat + t * (w.lat - v.lat));
+    }
+    if (dx * dx + dy * dy <= bufferDegreesSq) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function isInsideAnyZone(point: LatLng, cfg: GeofenceConfig): boolean {
+  const buffer = cfg.buffer_meters || 0;
   if (cfg.zones && cfg.zones.length > 0) {
-    return cfg.zones.some((z) => z.polygon.length >= 3 && isInsidePolygon(point, z.polygon));
+    return cfg.zones.some((z) => z.polygon.length >= 3 && isPointInBufferedPolygon(point, z.polygon, buffer));
   }
   if (cfg.polygon.length >= 3) {
-    return isInsidePolygon(point, cfg.polygon);
+    return isPointInBufferedPolygon(point, cfg.polygon, buffer);
   }
   return true; // No zones configured — don't trigger exit
 }
