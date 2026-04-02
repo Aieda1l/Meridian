@@ -1,5 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { apiFetch } from '../api/client';
+import { registerPlugin } from '@capacitor/core';
+
+// Using 'any' type to avoid TS errors if the community package types don't exactly align.
+const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
 
 interface LatLng {
   lat: number;
@@ -81,7 +85,7 @@ interface UseGeofenceOpts {
 
 export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onCheckout }: UseGeofenceOpts) {
   const outsideCount = useRef(0);
-  const watchId = useRef<number | null>(null);
+  const watchId = useRef<string | null>(null);
   const configRef = useRef<GeofenceConfig | null>(null);
   const memberIdRef = useRef(memberId);
   const sessionIdRef = useRef(sessionId);
@@ -91,11 +95,11 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
   onCheckoutRef.current = onCheckout;
 
   useEffect(() => {
-    if (!isCheckedIn || !memberId || !navigator.geolocation) {
+    if (!isCheckedIn || !memberId) {
       outsideCount.current = 0;
       configRef.current = null;
       if (watchId.current != null) {
-        navigator.geolocation.clearWatch(watchId.current);
+        BackgroundGeolocation.removeWatcher({ id: watchId.current });
         watchId.current = null;
       }
       return;
@@ -121,17 +125,29 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
         let exitReported = false;
         outsideCount.current = 0;
 
-        watchId.current = navigator.geolocation.watchPosition(
-          (position) => {
+        BackgroundGeolocation.addWatcher(
+          {
+            backgroundMessage: 'Meridian is tracking your shop attendance.',
+            backgroundTitle: 'Meridian Tracking Active',
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: 10,
+          },
+          (position: any, err: any) => {
+            if (err) {
+              console.warn('[Geofence] Geolocation error:', err);
+              return;
+            }
+            if (!position) return;
             if (!configRef.current) return;
             const point: LatLng = {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
+              lat: position.latitude,
+              lng: position.longitude,
             };
             const inside = isInsideAnyZone(point, configRef.current);
 
             console.log(
-              '[Geofence] Position:', point.lat.toFixed(5), point.lng.toFixed(5),
+              '[Geofence] Position:', point.lat?.toFixed(5), point.lng?.toFixed(5),
               '| Inside:', inside,
               '| Exit reported:', exitReported,
             );
@@ -151,21 +167,19 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
                     member_id: memberIdRef.current,
                     latitude: point.lat,
                     longitude: point.lng,
-                    accuracy_meters: position.coords.accuracy,
+                    accuracy_meters: position.accuracy || 10,
                   }),
                 })
                   .then(() => {
                     console.log('[Geofence] Exit reported — backend will auto-checkout after grace period');
-                    // Clear any existing poll timer to prevent duplicates
                     if (pollTimer) clearInterval(pollTimer);
-                    // Poll session state so UI updates when backend closes the session
                     const grace = configRef.current?.grace_period_seconds ?? 90;
                     pollTimer = setInterval(() => {
                       onCheckoutRef.current?.();
                     }, Math.min(grace * 1000 / 3, 15_000));
                   })
-                  .catch((err) => {
-                    console.warn('[Geofence] Exit report failed:', err);
+                  .catch((error) => {
+                    console.warn('[Geofence] Exit report failed:', error);
                     exitReported = false; // allow retry
                   });
               }
@@ -182,15 +196,17 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
                 apiFetch('/geofence/return', {
                   method: 'POST',
                   body: JSON.stringify({ member_id: memberIdRef.current }),
-                }).catch((err) => console.warn('[Geofence] Return report failed:', err));
+                }).catch((error) => console.warn('[Geofence] Return report failed:', error));
               }
             }
-          },
-          (err) => {
-            console.warn('[Geofence] Geolocation error:', err.message);
-          },
-          { enableHighAccuracy: true, timeout: 30000 },
-        );
+          }
+        ).then((id: string) => {
+          if (cancelled) {
+            BackgroundGeolocation.removeWatcher({ id });
+          } else {
+            watchId.current = id;
+          }
+        });
       })
       .catch((err) => {
         console.warn('[Geofence] Failed to load config:', err);
@@ -200,7 +216,7 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
       if (watchId.current != null) {
-        navigator.geolocation.clearWatch(watchId.current);
+        BackgroundGeolocation.removeWatcher({ id: watchId.current });
         watchId.current = null;
       }
     };

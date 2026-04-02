@@ -148,14 +148,28 @@ echo "VITE_API_URL=http://localhost:8000" > .env
 npm run dev                    # http://localhost:5173/admin
 ```
 
-### PWA
+### PWA & Native Apps
 
+The companion app is built as a PWA but uses Capacitor to wrap natively into iOS and Android for true background geofencing tracking.
+
+**Web Development:**
 ```bash
 cd pwa
 npm install
 echo "VITE_API_URL=http://localhost:8000" > .env
 npm run dev                    # http://localhost:5174
 ```
+
+**Native Generation & Building:**
+Since native background plugins require OS-level permissions, you can build and open the iOS/Android projects using Capacitor:
+```bash
+cd pwa
+npm run build                  # Compile web assets into dist/
+npm run sync                   # Sync assets and plugins to native shells
+npx cap open ios               # Opens Xcode, where you can build & deploy
+npx cap open android           # Opens Android Studio
+```
+*(Note: Be sure your target device has "Allow All The Time" location permissions enabled when testing geofence auto-checkout natively).*
 
 ### Scanner
 
