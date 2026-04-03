@@ -1,9 +1,57 @@
 import { useEffect, useRef } from 'react';
 import { apiFetch } from '../api/client';
-import { registerPlugin } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 
 // Using 'any' type to avoid TS errors if the community package types don't exactly align.
 const BackgroundGeolocation = registerPlugin<any>('BackgroundGeolocation');
+
+/**
+ * Web fallback for BackgroundGeolocation using navigator.geolocation.
+ * Only used when the native Capacitor plugin is unavailable (i.e. running in a browser).
+ */
+const WebGeolocationFallback = {
+  _nextId: 1,
+  _watchers: new Map<string, number>(),
+
+  addWatcher(
+    _options: any,
+    callback: (position: any, err: any) => void,
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!('geolocation' in navigator)) {
+        reject(new Error('Geolocation API not available in this browser'));
+        return;
+      }
+      const id = String(this._nextId++);
+      const nativeId = navigator.geolocation.watchPosition(
+        (pos) => {
+          callback(
+            {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+            },
+            null,
+          );
+        },
+        (err) => {
+          callback(null, err);
+        },
+        { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 },
+      );
+      this._watchers.set(id, nativeId);
+      resolve(id);
+    });
+  },
+
+  removeWatcher({ id }: { id: string }): void {
+    const nativeId = this._watchers.get(id);
+    if (nativeId != null) {
+      navigator.geolocation.clearWatch(nativeId);
+      this._watchers.delete(id);
+    }
+  },
+};
 
 interface LatLng {
   lat: number;
@@ -83,6 +131,14 @@ interface UseGeofenceOpts {
   onCheckout?: () => void;
 }
 
+function getGeolocationProvider() {
+  if (Capacitor.isNativePlatform()) {
+    return BackgroundGeolocation;
+  }
+  console.log('[Geofence] Native plugin unavailable — using web geolocation fallback');
+  return WebGeolocationFallback;
+}
+
 export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onCheckout }: UseGeofenceOpts) {
   const outsideCount = useRef(0);
   const watchId = useRef<string | null>(null);
@@ -95,11 +151,13 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
   onCheckoutRef.current = onCheckout;
 
   useEffect(() => {
+    const geo = getGeolocationProvider();
+
     if (!isCheckedIn || !memberId) {
       outsideCount.current = 0;
       configRef.current = null;
       if (watchId.current != null) {
-        BackgroundGeolocation.removeWatcher({ id: watchId.current });
+        geo.removeWatcher({ id: watchId.current });
         watchId.current = null;
       }
       return;
@@ -125,7 +183,7 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
         let exitReported = false;
         outsideCount.current = 0;
 
-        BackgroundGeolocation.addWatcher(
+        geo.addWatcher(
           {
             backgroundMessage: 'Meridian is tracking your shop attendance.',
             backgroundTitle: 'Meridian Tracking Active',
@@ -202,7 +260,7 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
           }
         ).then((id: string) => {
           if (cancelled) {
-            BackgroundGeolocation.removeWatcher({ id });
+            geo.removeWatcher({ id });
           } else {
             watchId.current = id;
           }
@@ -216,7 +274,7 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
       if (watchId.current != null) {
-        BackgroundGeolocation.removeWatcher({ id: watchId.current });
+        geo.removeWatcher({ id: watchId.current });
         watchId.current = null;
       }
     };
