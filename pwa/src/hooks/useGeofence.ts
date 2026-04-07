@@ -181,6 +181,7 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
         if (cancelled) return;
         let isFirstReading = true;
         let exitReported = false;
+        let permissionDeniedReported = false;
         outsideCount.current = 0;
 
         geo.addWatcher(
@@ -194,6 +195,14 @@ export function useGeofence({ isCheckedIn, memberId, sessionId, scannerId, onChe
           (position: any, err: any) => {
             if (err) {
               console.warn('[Geofence] Geolocation error:', err);
+              // Report location permission denial to backend (code 1 = PERMISSION_DENIED)
+              if (err.code === 1 && !permissionDeniedReported) {
+                permissionDeniedReported = true;
+                apiFetch('/geofence/location-denied', {
+                  method: 'POST',
+                  body: JSON.stringify({ member_id: memberIdRef.current }),
+                }).catch((e) => console.warn('[Geofence] Failed to report permission denial:', e));
+              }
               return;
             }
             if (!position) return;

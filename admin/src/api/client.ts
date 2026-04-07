@@ -99,6 +99,12 @@ export const getSessions = (params: string) =>
 export const approveSession = (id: string) =>
   apiFetch(`/sessions/${id}/approve`, { method: 'PATCH' });
 
+export const denySession = (id: string, reason?: string) =>
+  apiFetch(`/sessions/${id}/deny`, {
+    method: 'PATCH',
+    body: JSON.stringify({ reason: reason || null }),
+  });
+
 export interface ExportOptions {
   seasonId: string;
   format: string;
@@ -343,3 +349,36 @@ export interface AuditLogPage {
   page: number;
   page_size: number;
 }
+
+// Notifications
+export interface NotificationItem {
+  id: string;
+  recipient_id: string;
+  notification_type: string;
+  title: string;
+  body: string;
+  is_read: boolean;
+  related_session_id: string | null;
+  detail: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface NotificationPage {
+  items: NotificationItem[];
+  total: number;
+  unread_count: number;
+  page: number;
+  page_size: number;
+}
+
+export const getNotifications = (page = 1, pageSize = 20, unreadOnly = false) =>
+  apiFetch<NotificationPage>(`/notifications?page=${page}&page_size=${pageSize}&unread_only=${unreadOnly}`);
+
+export const getUnreadCount = () =>
+  apiFetch<{ count: number }>('/notifications/unread-count');
+
+export const markNotificationRead = (id: string) =>
+  apiFetch(`/notifications/${id}/read`, { method: 'PATCH' });
+
+export const markAllNotificationsRead = () =>
+  apiFetch('/notifications/mark-all-read', { method: 'POST' });

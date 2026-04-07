@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSessions, approveSession, type SessionItem } from '../api/client';
+import { getSessions, approveSession, denySession, type SessionItem } from '../api/client';
 import { useToast } from '../context/ToastContext';
 
 export default function Approvals() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [denyTarget, setDenyTarget] = useState<string | null>(null);
+  const [denyReason, setDenyReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
 
   const refresh = useCallback(async () => {
@@ -28,6 +31,22 @@ export default function Approvals() {
       toast.success('Session approved');
     } catch {
       toast.error('Failed to approve session');
+    }
+  };
+
+  const handleDeny = async () => {
+    if (!denyTarget) return;
+    setSubmitting(true);
+    try {
+      await denySession(denyTarget, denyReason || undefined);
+      setSessions((prev) => prev.filter((s) => s.id !== denyTarget));
+      toast.success('Session denied');
+      setDenyTarget(null);
+      setDenyReason('');
+    } catch {
+      toast.error('Failed to deny session');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -76,9 +95,51 @@ export default function Approvals() {
                 >
                   Approve
                 </button>
+                <button
+                  onClick={() => setDenyTarget(s.id)}
+                  className="neo-btn neo-btn-danger"
+                >
+                  Deny
+                </button>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Deny reason modal */}
+      {denyTarget && (
+        <div className="neo-modal-overlay">
+          <div className="neo-modal space-y-4">
+            <h3 className="text-lg font-bold text-neo-dark">Deny Session</h3>
+            <p className="text-sm text-neo-muted">
+              Optionally provide a reason for denying this session. The student will be notified.
+            </p>
+
+            <textarea
+              value={denyReason}
+              onChange={(e) => setDenyReason(e.target.value)}
+              placeholder="Reason (optional)"
+              className="neo-input w-full"
+              rows={3}
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setDenyTarget(null); setDenyReason(''); }}
+                className="neo-btn flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeny}
+                disabled={submitting}
+                className="neo-btn neo-btn-danger flex-1"
+              >
+                {submitting ? 'Denying...' : 'Deny Session'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

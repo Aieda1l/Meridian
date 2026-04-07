@@ -44,3 +44,7 @@ class SessionApproveResponse(BaseModel):
 class AutoTimeoutResponse(BaseModel):
     timed_out_count: int
     session_ids: list[str]
+
+
+class SessionDenyRequest(BaseModel):
+    reason: str | None = Field(None, max_length=500, description="Optional reason for denying the session")

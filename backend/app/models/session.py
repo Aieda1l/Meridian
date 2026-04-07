@@ -36,6 +36,7 @@ class SessionStatus(enum.Enum):
     closed = "closed"
     flagged = "flagged"
     approved = "approved"
+    denied = "denied"
 
 
 class Session(TimestampMixin, Base):

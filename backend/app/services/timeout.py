@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.models.session import CheckOutMethod, Session, SessionStatus
 from app.services.audit import log_event
 from app.services.checkout import close_session
+from app.services.notifications import create_notification, notify_all_admins
 
 logger = logging.getLogger("meridian.autotimeout")
 
@@ -59,6 +60,15 @@ async def run_auto_timeout(db: AsyncSession, redis_client: Redis) -> List[str]:
                 close_session(locked_session, CheckOutMethod.auto_timeout, now, flag_reason="auto_timeout")
                 closed_ids.append(str(locked_session.id))
 
+                await create_notification(
+                    db,
+                    recipient_id=locked_session.member_id,
+                    notification_type="auto_timeout",
+                    title="Session Timed Out",
+                    body="Your session was automatically closed after 12 hours of inactivity.",
+                    related_session_id=locked_session.id,
+                )
+
         # ── 2. Geofence grace period expiry ───────────────────────────────────
         geo_result = await db.execute(
             select(Session.id, Session.member_id).where(
@@ -97,14 +107,33 @@ async def run_auto_timeout(db: AsyncSession, redis_client: Redis) -> List[str]:
                     if checkout_time > now:
                         checkout_time = now
 
-                    close_session(locked_session, CheckOutMethod.geofence, checkout_time, flag_reason="geofence_auto")
+                    close_session(locked_session, CheckOutMethod.geofence, checkout_time)
                     closed_ids.append(str(locked_session.id))
-                    
+
                     await log_event(
                         db,
                         event_type="geofence_checkout",
                         actor_id=locked_session.member_id,
                         detail={"session_id": str(locked_session.id), "source": "auto_timeout"},
+                    )
+
+                    # Notify the student
+                    await create_notification(
+                        db,
+                        recipient_id=locked_session.member_id,
+                        notification_type="geofence_checkout",
+                        title="Automatically Checked Out",
+                        body="You were checked out because you left the shop area.",
+                        related_session_id=locked_session.id,
+                    )
+
+                    # Notify admins
+                    await notify_all_admins(
+                        db,
+                        notification_type="geofence_checkout",
+                        title="Geofence Auto-Checkout",
+                        body=f"Member {locked_session.member_id} was automatically checked out for leaving the shop area.",
+                        detail={"member_id": str(locked_session.member_id), "session_id": str(locked_session.id)},
                     )
 
         if closed_ids:

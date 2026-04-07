@@ -1,13 +1,35 @@
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import { apiFetch } from './api/client';
 import Home from './pages/Home';
 import Status from './pages/Status';
 import History from './pages/History';
+import Messages from './pages/Messages';
 import Login from './pages/Login';
 
 function ProtectedLayout() {
   const { isAuthenticated, loading, user, logout } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    const fetchCount = async () => {
+      try {
+        const { count } = await apiFetch<{ count: number }>('/notifications/unread-count');
+        if (!cancelled) setUnreadCount(count);
+      } catch {
+        // Silently ignore
+      }
+    };
+
+    fetchCount();
+    const id = setInterval(fetchCount, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [user]);
 
   if (loading) {
     return (
@@ -38,6 +60,7 @@ function ProtectedLayout() {
           <Route path="/" element={<Home />} />
           <Route path="/status" element={<Status />} />
           <Route path="/history" element={<History />} />
+          <Route path="/messages" element={<Messages onUnreadChange={setUnreadCount} />} />
         </Routes>
       </main>
 
@@ -47,6 +70,7 @@ function ProtectedLayout() {
           { to: '/', label: 'Home', icon: '\u{1F3E0}' },
           { to: '/status', label: 'Hours', icon: '\u{1F4CA}' },
           { to: '/history', label: 'History', icon: '\u{1F4CB}' },
+          { to: '/messages', label: 'Messages', icon: '\u{1F514}' },
         ].map((item) => (
           <NavLink
             key={item.to}
@@ -56,7 +80,14 @@ function ProtectedLayout() {
               `neo-nav-item flex-1 flex flex-col items-center py-2 text-xs ${isActive ? 'active' : ''}`
             }
           >
-            <span className="text-xl">{item.icon}</span>
+            <span className="text-xl relative">
+              {item.icon}
+              {item.to === '/messages' && unreadCount > 0 && (
+                <span className="absolute -top-1 -right-2 bg-accent text-neo-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </span>
             {item.label}
           </NavLink>
         ))}

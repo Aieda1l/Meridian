@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useGeofence } from '../hooks/useGeofence';
@@ -20,17 +20,26 @@ export default function Home() {
   const [reportTime, setReportTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const prevSessionRef = useRef<Session | null>(null);
+
   const fetchOpenSession = useCallback(async () => {
     if (!user) return;
     try {
       const data = await apiFetch<{ items: Session[] }>(
         `/members/${user.id}/sessions?status=open&page_size=1`,
       );
-      setOpenSession(data.items.length > 0 ? data.items[0] : null);
+      const current = data.items.length > 0 ? data.items[0] : null;
+
+      // Detect auto-checkout: session went from open to gone
+      if (prevSessionRef.current && !current) {
+        toast.warning('You were automatically checked out.');
+      }
+      prevSessionRef.current = current;
+      setOpenSession(current);
     } catch {
       setOpenSession(null);
     }
-  }, [user]);
+  }, [user, toast]);
 
   useGeofence({
     isCheckedIn: !!openSession,

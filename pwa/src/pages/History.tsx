@@ -25,6 +25,7 @@ const STATUS_BADGE: Record<string, string> = {
   closed: 'neo-badge-soft',
   flagged: 'neo-badge-warning',
   approved: 'neo-badge-info',
+  denied: 'neo-badge-danger',
 };
 
 const METHOD_ICONS: Record<string, string> = {

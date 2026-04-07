@@ -28,12 +28,14 @@ from app.models.session import CheckOutMethod, Session, SessionStatus
 from app.schemas.session import (
     AutoTimeoutResponse,
     SessionApproveResponse,
+    SessionDenyRequest,
     SessionDetailOut,
     SessionListOut,
     SelfReportRequest,
 )
 from app.services.audit import log_event
 from app.services.checkout import calculate_duration_minutes
+from app.services.notifications import create_notification
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -230,10 +232,80 @@ async def approve_session(
         ip_address=request.client.host if request.client else None,
     )
 
+    # Notify the student
+    date_str = session.check_in_at.strftime("%b %d, %Y")
+    await create_notification(
+        db,
+        recipient_id=session.member_id,
+        notification_type="session_approved",
+        title="Session Approved",
+        body=f"Your session on {date_str} was approved.",
+        related_session_id=session.id,
+    )
+
     return SessionApproveResponse(
         id=str(session.id),
         status=session.status.value,
         message="Session approved",
+    )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /sessions/{id}/deny — admin only
+# ---------------------------------------------------------------------------
+
+@router.patch("/{session_id}/deny", response_model=SessionApproveResponse)
+async def deny_session(
+    session_id: uuid.UUID,
+    body: SessionDenyRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: Member = Depends(require_admin),
+):
+    """Deny a flagged session."""
+    session = await _get_session_or_404(db, session_id)
+
+    if session.status != SessionStatus.flagged:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Session status is '{session.status.value}', expected 'flagged'",
+        )
+
+    session.status = SessionStatus.denied
+    if body.reason:
+        session.flag_reason = f"denied: {body.reason}"
+
+    await db.flush()
+
+    await log_event(
+        db,
+        event_type="session_denied",
+        actor_id=admin.id,
+        target_id=session.id,
+        detail={
+            "member_id": str(session.member_id),
+            "reason": body.reason,
+            "previous_flag_reason": session.flag_reason,
+        },
+        ip_address=request.client.host if request.client else None,
+    )
+
+    # Notify the student
+    deny_reason = f" Reason: {body.reason}" if body.reason else ""
+    date_str = session.check_in_at.strftime("%b %d, %Y")
+    await create_notification(
+        db,
+        recipient_id=session.member_id,
+        notification_type="session_denied",
+        title="Session Denied",
+        body=f"Your session on {date_str} was denied by an admin.{deny_reason}",
+        related_session_id=session.id,
+    )
+
+    return SessionApproveResponse(
+        id=str(session.id),
+        status=session.status.value,
+        message="Session denied",
     )
 
 

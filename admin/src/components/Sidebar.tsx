@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useUnread } from '../context/UnreadContext';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '\u{1F4CA}' },
   { to: '/members', label: 'Members', icon: '\u{1F465}' },
   { to: '/approvals', label: 'Approvals', icon: '\u2705' },
+  { to: '/messages', label: 'Messages', icon: '\u{1F514}' },
   { to: '/reports', label: 'Reports', icon: '\u{1F4C4}' },
   { to: '/geofences', label: 'Geofences', icon: '\u{1F4CD}', adminOnly: true },
   { to: '/audit-log', label: 'Audit Log', icon: '\u{1F50D}', adminOnly: true },
@@ -12,6 +14,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const { user, role, logout } = useAuth();
+  const { unreadCount } = useUnread();
 
   return (
     <aside className="w-60 neo-sidebar flex flex-col h-screen sticky top-0">
@@ -32,6 +35,11 @@ export default function Sidebar() {
           >
             <span>{item.icon}</span>
             {item.label}
+            {item.to === '/messages' && unreadCount > 0 && (
+              <span className="ml-auto bg-accent text-neo-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

@@ -21,3 +21,7 @@ class GeofenceConfigResponse(BaseModel):
     polygon: list[dict[str, float]]
     grace_period_seconds: int
     buffer_meters: int
+
+
+class LocationDeniedRequest(BaseModel):
+    member_id: str

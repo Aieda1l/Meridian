@@ -62,3 +62,36 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
 
   return res.json() as Promise<T>;
 }
+
+// Notifications
+export interface NotificationItem {
+  id: string;
+  recipient_id: string;
+  notification_type: string;
+  title: string;
+  body: string;
+  is_read: boolean;
+  related_session_id: string | null;
+  detail: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface NotificationPage {
+  items: NotificationItem[];
+  total: number;
+  unread_count: number;
+  page: number;
+  page_size: number;
+}
+
+export const getNotifications = (page = 1, pageSize = 20) =>
+  apiFetch<NotificationPage>(`/notifications?page=${page}&page_size=${pageSize}`);
+
+export const getUnreadCount = () =>
+  apiFetch<{ count: number }>('/notifications/unread-count');
+
+export const markNotificationRead = (id: string) =>
+  apiFetch(`/notifications/${id}/read`, { method: 'PATCH' });
+
+export const markAllNotificationsRead = () =>
+  apiFetch('/notifications/mark-all-read', { method: 'POST' });

@@ -19,6 +19,7 @@ from app.api.routers.members import router as members_router
 from app.api.routers.passes import router as passes_router
 from app.api.routers.scanner import router as scanner_router
 from app.api.routers.sessions import router as sessions_router
+from app.api.routers.notifications import router as notifications_router
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.rate_limit import limiter
@@ -92,6 +93,7 @@ app.include_router(scanner_router)
 app.include_router(geofence_router)
 app.include_router(sessions_router)
 app.include_router(admin_router)
+app.include_router(notifications_router)
 
 
 @app.get("/health")

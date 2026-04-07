@@ -26,8 +26,10 @@ from app.models.session import CheckOutMethod, Session, SessionStatus
 from app.schemas.geofence import (
     GeofenceExitRequest,
     GeofenceReturnRequest,
+    LocationDeniedRequest,
 )
 from app.services.audit import log_event
+from app.services.notifications import create_notification, notify_all_admins
 
 router = APIRouter(prefix="/geofence", tags=["geofence"])
 
@@ -160,6 +162,19 @@ async def geofence_exit(
         },
     )
 
+    # Notify admins that a student left the geofence
+    from app.core.encryption import pgp_decrypt
+    member_name = "Unknown"
+    if member.name_encrypted:
+        member_name = await pgp_decrypt(db, member.name_encrypted)
+    await notify_all_admins(
+        db,
+        notification_type="geofence_exit",
+        title="Student Left Shop Area",
+        body=f"{member_name} ({member.member_number}) left the shop area. Grace period started ({settings.GEOFENCE_GRACE_PERIOD_SECONDS}s).",
+        detail={"member_id": str(member.id), "session_id": str(session.id)},
+    )
+
     return {
         "status": "grace_period_started",
         "grace_period_seconds": settings.GEOFENCE_GRACE_PERIOD_SECONDS,
@@ -251,7 +266,9 @@ async def geofence_checkout(
         )
 
     from app.services.checkout import close_session
-    close_session(session, CheckOutMethod.geofence, datetime.now(timezone.utc), flag_reason="geofence_auto")
+    from app.core.encryption import pgp_decrypt
+
+    close_session(session, CheckOutMethod.geofence, datetime.now(timezone.utc))
 
     await db.flush()
 
@@ -265,10 +282,68 @@ async def geofence_checkout(
         detail={"session_id": str(session.id)},
     )
 
+    # Notify the student
+    await create_notification(
+        db,
+        recipient_id=member.id,
+        notification_type="geofence_checkout",
+        title="Automatically Checked Out",
+        body="You were checked out because you left the shop area.",
+        related_session_id=session.id,
+    )
+
+    # Notify admins
+    member_name = "Unknown"
+    if member.name_encrypted:
+        member_name = await pgp_decrypt(db, member.name_encrypted)
+    await notify_all_admins(
+        db,
+        notification_type="geofence_checkout",
+        title="Geofence Auto-Checkout",
+        body=f"{member_name} ({member.member_number}) was automatically checked out for leaving the shop area.",
+        detail={"member_id": str(member.id), "session_id": str(session.id)},
+    )
+
     return {
         "status": "checked_out",
         "session_id": str(session.id),
     }
+
+
+@router.post("/location-denied")
+async def report_location_denied(
+    body: LocationDeniedRequest,
+    member: Member = Depends(get_current_member),
+    db: AsyncSession = Depends(get_db),
+):
+    """Report that a member denied browser location permission."""
+    if str(member.id) != body.member_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="member_id does not match authenticated user",
+        )
+
+    from app.core.encryption import pgp_decrypt
+    member_name = "Unknown"
+    if member.name_encrypted:
+        member_name = await pgp_decrypt(db, member.name_encrypted)
+
+    await log_event(
+        db,
+        event_type="location_permission_denied",
+        actor_id=member.id,
+        detail={"member_name": member_name},
+    )
+
+    await notify_all_admins(
+        db,
+        notification_type="location_permission_denied",
+        title="Location Permission Denied",
+        body=f"{member_name} ({member.member_number}) denied location tracking permission.",
+        detail={"member_id": str(member.id), "member_number": member.member_number},
+    )
+
+    return {"status": "reported"}
 
 
 @router.get("/config")

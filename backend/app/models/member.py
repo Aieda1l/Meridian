@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from .session import Session
     from .hour_warning import HourWarning
     from .admin_event import AdminEvent
+    from .notification import Notification
 
 
 class MemberRole(enum.Enum):
@@ -86,6 +87,9 @@ class Member(TimestampMixin, Base):
     )
     admin_events: Mapped[List["AdminEvent"]] = relationship(
         back_populates="actor"
+    )
+    notifications: Mapped[List["Notification"]] = relationship(
+        back_populates="recipient"
     )
 
     __table_args__ = (
