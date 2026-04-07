@@ -70,11 +70,12 @@ def create_access_token(subject: str, role: str, extra: dict | None = None) -> s
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(subject: str) -> str:
+def create_refresh_token(subject: str, role: str = "student") -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": subject,
         "type": "refresh",
+        "role": role,
         "iat": now,
         "exp": now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         "jti": str(uuid.uuid4()),
@@ -200,12 +201,26 @@ async def get_current_scanner(
 # ---------------------------------------------------------------------------
 
 async def get_refresh_token_payload(
-    refresh_token: Annotated[str | None, Cookie()] = None,
+    request: Request,
 ) -> dict:
-    """Dependency: extracts and validates the refresh token from an httpOnly cookie."""
-    if not refresh_token:
+    """Dependency: extracts and validates the refresh token from an httpOnly cookie.
+
+    Uses the 'client' query param to pick the correct cookie name, supporting
+    concurrent admin and member sessions on the same domain.
+    """
+    client = request.query_params.get("client", "")
+    if client == "admin":
+        token = request.cookies.get("refresh_token_admin")
+    else:
+        token = request.cookies.get("refresh_token")
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
-    payload = decode_token(refresh_token)
+    payload = decode_token(token)
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
     return payload
+
+
+def _refresh_cookie_name(role: str) -> str:
+    """Return the cookie name for the given role."""
+    return "refresh_token_admin" if role == "admin" else "refresh_token"

@@ -20,6 +20,7 @@ from app.core.database import get_db
 from app.core.encryption import pgp_decrypt, pgp_encrypt
 from app.core.rate_limit import limiter
 from app.core.security import (
+    _refresh_cookie_name,
     create_access_token,
     create_refresh_token,
     get_current_member,
@@ -80,15 +81,17 @@ async def login(
             detail="Invalid email or password",
         )
 
+    role = authenticated_member.role.value
     access_token = create_access_token(
         subject=str(authenticated_member.id),
-        role=authenticated_member.role.value,
+        role=role,
     )
-    refresh_token = create_refresh_token(subject=str(authenticated_member.id))
+    refresh_token = create_refresh_token(subject=str(authenticated_member.id), role=role)
 
-    # Set refresh token as httpOnly cookie
+    # Set refresh token as httpOnly cookie (role-specific name to avoid
+    # collisions when admin and student sessions run on the same domain)
     response.set_cookie(
-        key="refresh_token",
+        key=_refresh_cookie_name(role),
         value=refresh_token,
         httponly=True,
         secure=True,
@@ -121,15 +124,16 @@ async def refresh(
     if member is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Member not found or inactive")
 
+    role = member.role.value
     access_token = create_access_token(
         subject=str(member.id),
-        role=member.role.value,
+        role=role,
     )
 
-    # Rotate refresh token
-    new_refresh = create_refresh_token(subject=str(member.id))
+    # Rotate refresh token (use the same role-specific cookie name)
+    new_refresh = create_refresh_token(subject=str(member.id), role=role)
     response.set_cookie(
-        key="refresh_token",
+        key=_refresh_cookie_name(role),
         value=new_refresh,
         httponly=True,
         secure=True,
@@ -147,8 +151,9 @@ async def refresh(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(response: Response):
-    """Clear the refresh token cookie."""
+    """Clear refresh token cookies (both admin and member variants)."""
     response.delete_cookie(key="refresh_token", path="/auth")
+    response.delete_cookie(key="refresh_token_admin", path="/auth")
 
 
 # ---------------------------------------------------------------------------

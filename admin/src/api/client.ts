@@ -4,7 +4,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 let refreshPromise: Promise<string> | null = null;
 
 async function doRefresh(): Promise<string> {
-  const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+  const refreshRes = await fetch(`${API_BASE}/auth/refresh?client=admin`, {
     method: 'POST',
     credentials: 'include',
   });
