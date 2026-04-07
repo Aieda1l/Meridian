@@ -34,10 +34,11 @@ Full-stack attendance tracking system for FRC robotics teams. Members check in a
 
 - **NFC + QR check-in/out** — Wallet passes with HMAC-signed NFC payloads and TOTP-rotating QR codes (30s window, replay prevention via Redis)
 - **Apple Wallet & Google Wallet** — PKCS#7-signed .pkpass generation; Google Wallet REST API with JWT save links
-- **Geofencing** — Server-validated polygon boundary with configurable buffer and coordinate validation; 90-second grace period before auto-checkout
+- **Geofencing** — Server-validated polygon boundary with configurable buffer and coordinate validation; 90-second grace period before auto-checkout; admins notified on exit and auto-checkout; web geolocation fallback for browser testing
+- **In-app notifications** — Message center for students and admins; session approval/denial results, geofence events, auto-checkouts, and location permission alerts; unread badge on nav
 - **Hour caps** — Daily, weekly, and season caps with 80% and 100% threshold warnings via push notifications
 - **Offline scanner mode** — AES-256-GCM encrypted local cache (random per-scanner salt), SQLite event queue with max size cap, automatic sync on reconnect
-- **Self-reported checkouts** — Members submit missed checkouts through the PWA; flagged for admin approval
+- **Self-reported checkouts** — Members submit missed checkouts through the PWA; flagged for admin approval or denial with optional reason
 - **Auto-timeout** — Cron endpoint closes sessions open >12 hours, flagged for review
 - **Season rollover** — Admin creates new season; old sessions auto-closed, new cap counters start fresh
 - **CSV/PDF export** — Reportlab-generated PDFs with styled tables and subtotals; Excel-compatible CSV with BOM
@@ -53,9 +54,9 @@ Meridian/
 │   ├── app/
 │   │   ├── api/routers/       # auth, members, passes, scanner, geofence, sessions, admin
 │   │   ├── core/              # config, database, redis, security, encryption, rate_limit
-│   │   ├── models/            # SQLAlchemy models (member, session, season, scanner, etc.)
+│   │   ├── models/            # SQLAlchemy models (member, session, season, scanner, notification, etc.)
 │   │   ├── schemas/           # Pydantic request/response schemas
-│   │   ├── services/          # apple_pass, google_pass, audit, export, hour_caps, push, scan_validation
+│   │   ├── services/          # apple_pass, google_pass, audit, export, hour_caps, push, notifications, scan_validation
 │   │   ├── migrations/        # Alembic migrations
 │   │   └── main.py
 │   ├── Dockerfile
@@ -78,9 +79,9 @@ Meridian/
 │   ├── requirements.txt
 │   └── build.spec             # PyInstaller single-exe bundling
 ├── pwa/                       # Member companion app (PWA + Capacitor)
-│   └── src/                   # React pages: Home, Status (hour bars), History
+│   └── src/                   # React pages: Home, Status (hour bars), History, Messages
 ├── admin/                     # Admin dashboard SPA
-│   └── src/                   # React pages: Dashboard, Members, Approvals, Reports, Audit Log
+│   └── src/                   # React pages: Dashboard, Members, Approvals, Reports, Messages, Audit Log
 └── railway.toml               # Railway deployment config
 ```
 
@@ -110,8 +111,14 @@ Meridian/
 | `GET /geofence/config` | Member | Shop polygon + grace period |
 | `GET /sessions` | Admin | Filterable session list |
 | `PATCH /sessions/{id}/approve` | Admin | Approve flagged session |
+| `PATCH /sessions/{id}/deny` | Admin | Deny flagged session (optional reason) |
 | `PATCH /sessions/{id}/self-report` | Member | Submit self-reported checkout |
 | `POST /sessions/auto-timeout` | Cron | Close stale sessions |
+| `GET /notifications` | Member | Paginated notification inbox |
+| `GET /notifications/unread-count` | Member | Unread badge count |
+| `PATCH /notifications/{id}/read` | Member | Mark notification as read |
+| `POST /notifications/mark-all-read` | Member | Mark all as read |
+| `POST /geofence/location-denied` | Member | Report location permission denial |
 | `GET /admin/dashboard` | Admin/Mentor | Live stats + who's here |
 | `GET/POST /admin/seasons` | Admin | Season CRUD + rollover |
 | `GET /admin/export` | Admin/Mentor | CSV or PDF download |
