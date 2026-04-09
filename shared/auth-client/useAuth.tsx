@@ -28,7 +28,7 @@ interface AuthContextValue {
   role: string;
   loading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, extra?: Record<string, unknown>) => Promise<void>;
   logout: () => void;
 }
 
@@ -115,10 +115,10 @@ export function createAuthProvider(config: AuthConfig) {
       fetchUser();
     }, [fetchUser]);
 
-    const login = async (email: string, password: string) => {
+    const login = async (email: string, password: string, extra?: Record<string, unknown>) => {
       const res = await apiFetch<{ access_token: string }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, ...extra }),
       });
       localStorage.setItem(storageKeyToken, res.access_token);
       await fetchUser();

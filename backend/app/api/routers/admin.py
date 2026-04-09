@@ -1,4 +1,4 @@
-"""Admin router — dashboard, seasons, sessions, export, audit log.
+"""Admin router — dashboard, seasons, sessions, export, audit log, bulk import.
 
 - GET   /admin/dashboard                       — live dashboard stats
 - GET   /admin/seasons                         — list all seasons
@@ -8,6 +8,7 @@
 - POST  /admin/checkout-all                    — close all open sessions
 - GET   /admin/export                          — download CSV or PDF report
 - GET   /admin/audit-log                       — paginated audit log
+- POST  /admin/import-members                  — bulk CSV member import
 - GET   /admin/geofence-zones                  — list all geofence zones
 - POST  /admin/geofence-zones                  — create a geofence zone
 - PATCH /admin/geofence-zones/{id}             — update a geofence zone
@@ -16,22 +17,26 @@
 
 from __future__ import annotations
 
+import csv
 import io
+import secrets
+import string
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+import pyotp
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.encryption import pgp_decrypt
-from app.core.security import get_current_member, require_admin, require_admin_or_mentor
+from app.core.encryption import pgp_decrypt, pgp_encrypt
+from app.core.security import get_current_member, hash_email, hash_password, require_admin, require_admin_or_mentor
 from app.models.admin_event import AdminEvent
 from app.models.geofence_zone import GeofenceZone, scanner_geofence_zones
 from app.models.hour_warning import HourWarning
-from app.models.member import Member
+from app.models.member import DevicePlatform, Member, MemberRole
 from app.models.scanner import Scanner
 from app.models.season import Season
 from app.models.session import CheckOutMethod, Session, SessionStatus
@@ -533,6 +538,137 @@ async def get_audit_log(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/import-members — bulk CSV import
+# ---------------------------------------------------------------------------
+
+def _generate_password(length: int = 12) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+@router.post("/import-members")
+async def import_members(
+    file: UploadFile,
+    request: Request,
+    admin: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk-import members from a CSV file.
+
+    Expected columns: member_number, name, email, phone (optional), role (optional).
+    Auto-assigns the active season. Generates a random password and TOTP secret
+    for each member. Returns created members with their temporary passwords.
+    """
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a .csv")
+
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")  # handle BOM
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+
+    # Validate headers
+    required = {"member_number", "name", "email"}
+    if reader.fieldnames is None or not required.issubset({f.strip().lower() for f in reader.fieldnames}):
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV must have columns: {', '.join(sorted(required))}. Found: {reader.fieldnames}",
+        )
+
+    # Get active season for auto-assignment
+    from app.services.season import get_active_season
+    try:
+        active_season = await get_active_season(db)
+        season_id = active_season.id
+    except HTTPException:
+        season_id = None
+
+    results: list[dict] = []
+    errors: list[dict] = []
+
+    for row_num, row in enumerate(reader, start=2):
+        # Normalize keys to lowercase
+        row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+
+        member_number = row.get("member_number", "")
+        name = row.get("name", "")
+        email = row.get("email", "")
+        phone = row.get("phone", "")
+        role_str = row.get("role", "student").lower() or "student"
+
+        if not member_number or not name or not email:
+            errors.append({"row": row_num, "error": "Missing required field(s)", "member_number": member_number})
+            continue
+
+        # Check for duplicate member_number
+        existing = await db.execute(select(Member).where(Member.member_number == member_number))
+        if existing.scalar_one_or_none() is not None:
+            errors.append({"row": row_num, "error": "Duplicate member_number", "member_number": member_number})
+            continue
+
+        # Check for duplicate email
+        email_hash_val = hash_email(email)
+        existing_email = await db.execute(select(Member).where(Member.email_hash == email_hash_val))
+        if existing_email.scalar_one_or_none() is not None:
+            errors.append({"row": row_num, "error": "Email already exists", "member_number": member_number})
+            continue
+
+        try:
+            role = MemberRole(role_str)
+        except ValueError:
+            role = MemberRole.student
+
+        password = _generate_password()
+
+        name_enc = await pgp_encrypt(db, name)
+        email_enc = await pgp_encrypt(db, email)
+        phone_enc = await pgp_encrypt(db, phone) if phone else None
+
+        totp_secret = pyotp.random_base32()
+        totp_enc = await pgp_encrypt(db, totp_secret)
+
+        pass_serial = uuid.uuid4()
+
+        member = Member(
+            member_number=member_number,
+            name_encrypted=name_enc,
+            email_encrypted=email_enc,
+            email_hash=email_hash_val,
+            phone_encrypted=phone_enc,
+            role=role,
+            password_hashed=hash_password(password),
+            totp_secret_encrypted=totp_enc,
+            pass_serial=pass_serial,
+            device_platform=DevicePlatform.none,
+            season_id=season_id,
+        )
+        db.add(member)
+        await db.flush()
+
+        results.append({
+            "member_number": member_number,
+            "name": name,
+            "email": email,
+            "password": password,
+            "pass_serial": str(pass_serial),
+        })
+
+    # Audit log
+    await log_event(
+        db,
+        event_type="members_bulk_imported",
+        actor_id=admin.id,
+        detail={"imported_count": len(results), "error_count": len(errors)},
+        ip_address=request.client.host if request.client else None,
+    )
+
+    return {"imported": results, "errors": errors, "total_imported": len(results), "total_errors": len(errors)}
 
 
 # ---------------------------------------------------------------------------

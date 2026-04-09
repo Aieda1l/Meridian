@@ -20,6 +20,7 @@ from app.core.database import get_db
 from app.core.encryption import pgp_decrypt, pgp_encrypt
 from app.core.rate_limit import limiter
 from app.core.security import (
+    hash_email,
     _refresh_cookie_name,
     create_access_token,
     create_refresh_token,
@@ -37,6 +38,7 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.services.audit import log_event
+from app.services.season import get_active_season
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -56,7 +58,6 @@ async def login(
     """Authenticate with email + password. Returns access token in body,
     refresh token as an httpOnly cookie."""
 
-    from app.core.security import hash_email
     hashed_email = hash_email(body.email)
 
     result = await db.execute(
@@ -80,6 +81,25 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
+
+    # Device binding — anti-cheat for student accounts
+    if body.device_fingerprint and authenticated_member.role == MemberRole.student:
+        if authenticated_member.device_fingerprint is None:
+            # First login: bind this device
+            authenticated_member.device_fingerprint = body.device_fingerprint
+            await db.flush()
+        elif authenticated_member.device_fingerprint != body.device_fingerprint:
+            await log_event(
+                db,
+                event_type="auth_device_mismatch",
+                actor_id=authenticated_member.id,
+                detail={"expected_prefix": authenticated_member.device_fingerprint[:8]},
+                ip_address=request.client.host if request.client else None,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account is bound to a different device. Contact an admin to transfer your pass.",
+            )
 
     role = authenticated_member.role.value
     access_token = create_access_token(
@@ -182,7 +202,6 @@ async def register(
         )
 
     # Encrypt PII
-    from app.core.security import hash_email
     name_enc = await pgp_encrypt(db, body.name)
     email_enc = await pgp_encrypt(db, body.email)
     email_hash_val = hash_email(body.email)
@@ -198,8 +217,15 @@ async def register(
     # Parse role
     role = MemberRole(body.role)
 
-    # Parse season_id
-    season_id = uuid.UUID(body.season_id) if body.season_id else None
+    # Parse season_id — auto-assign active season if none specified
+    if body.season_id:
+        season_id = uuid.UUID(body.season_id)
+    else:
+        try:
+            active_season = await get_active_season(db)
+            season_id = active_season.id
+        except HTTPException:
+            season_id = None
 
     member = Member(
         member_number=body.member_number,

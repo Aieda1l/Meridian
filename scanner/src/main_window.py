@@ -8,7 +8,9 @@ Three zones:
 
 from __future__ import annotations
 
+import concurrent.futures
 from datetime import datetime, timezone
+from functools import partial
 from urllib.parse import parse_qs, urlparse
 
 from PyQt6.QtCore import (
@@ -63,7 +65,7 @@ from .widgets import EventLogWidget, NeoButton, NeoCard, StatusPill
 # Timing constants
 # ───────────────────────────────────────────────────────────────────────
 
-SUCCESS_DISPLAY_MS = 4000          # How long to show the success/error card
+SUCCESS_DISPLAY_MS = 2500          # How long to show the success/error card
 HEARTBEAT_INTERVAL_MS = 30_000     # API heartbeat interval
 QUEUE_FLUSH_INTERVAL_MS = 60_000   # Offline queue flush interval
 INITIAL_HEARTBEAT_DELAY_MS = 1000  # Delay before first heartbeat
@@ -118,7 +120,7 @@ class _WebcamFrame(QWidget):
             scaled = self._pixmap.scaled(
                 int(inner.width()), int(inner.height()),
                 Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
+                Qt.TransformationMode.FastTransformation,
             )
             x = inner.left() + (inner.width() - scaled.width()) / 2
             y = inner.top() + (inner.height() - scaled.height()) / 2
@@ -167,6 +169,7 @@ class MainWindow(QWidget):
         self.offline = OfflineManager(config.offline_cache_path, config.api_key or "dev")
         self._online = False
         self._cache_version = 0
+        self._scan_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -409,27 +412,66 @@ class MainWindow(QWidget):
                        selfie_b64=selfie_b64 or None)
 
     def _do_scan(self, serial, method, nfc_payload, totp_code, selfie_b64) -> None:
+        """Submit the scan to the backend in a background thread.
+
+        The GUI stays responsive while the HTTP request is in flight.
+        A QTimer poll (every 50 ms) picks up the result and updates the UI
+        on the main thread once the future completes.
+        """
+        # Show a "processing" state immediately
+        self._idle_label.setText("Processing…")
+        self._idle_sub.setText("")
+
+        future = self._scan_pool.submit(
+            self._scan_worker, serial, method, nfc_payload, totp_code, selfie_b64,
+        )
+
+        # Poll for completion via a single-shot timer chain (keeps us on the
+        # main thread for all Qt widget updates).
+        def _check_future():
+            if not future.done():
+                QTimer.singleShot(50, _check_future)
+                return
+            try:
+                result_type, payload = future.result()
+            except Exception as exc:
+                self._handle_scan_error(exc, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
+                QTimer.singleShot(SUCCESS_DISPLAY_MS, self._return_to_idle)
+                return
+
+            if result_type == "checkin":
+                name = payload.get("member_name", "Member")
+                self._show_success(name, "Checked In")
+                self._event_log.add_event(f"\u2714  {name} checked in", success=True)
+            elif result_type == "checkout":
+                name = payload.get("member_name", "Member")
+                dur = payload.get("duration_minutes", 0)
+                self._show_success(name, f"Checked Out  \u2022  {dur} min")
+                self._event_log.add_event(f"\u2714  {name} out ({dur}m)", success=True)
+            elif result_type == "error":
+                err = payload
+                self._handle_scan_error(err, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
+
+            QTimer.singleShot(SUCCESS_DISPLAY_MS, self._return_to_idle)
+
+        QTimer.singleShot(50, _check_future)
+
+    # Worker that runs in a background thread (NO Qt widget access here)
+    def _scan_worker(self, serial, method, nfc_payload, totp_code, selfie_b64):
+        """Blocking API calls — runs in ThreadPoolExecutor, returns (type, payload)."""
         try:
             result = self.api.checkin(serial, nfc_payload, totp_code, method, selfie_b64)
-            name = result.get("member_name", "Member")
-            self._show_success(name, "Checked In")
-            self._event_log.add_event(f"\u2714  {name} checked in", success=True)
+            return ("checkin", result)
         except ApiError as checkin_err:
             if checkin_err.status_code == 409:
                 try:
                     result = self.api.checkout(serial, nfc_payload, totp_code, method, selfie_b64)
-                    name = result.get("member_name", "Member")
-                    dur = result.get("duration_minutes", 0)
-                    self._show_success(name, f"Checked Out  \u2022  {dur} min")
-                    self._event_log.add_event(f"\u2714  {name} out ({dur}m)", success=True)
+                    return ("checkout", result)
                 except Exception as checkout_err:
-                    self._handle_scan_error(checkout_err, serial, method, nfc_payload, totp_code, selfie_b64, "checkout")
-            else:
-                self._handle_scan_error(checkin_err, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
-        except Exception as checkin_err:
-            self._handle_scan_error(checkin_err, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
-
-        QTimer.singleShot(SUCCESS_DISPLAY_MS, self._return_to_idle)
+                    return ("error", checkout_err)
+            return ("error", checkin_err)
+        except Exception as exc:
+            return ("error", exc)
 
     def _handle_scan_error(self, err, serial, method, nfc_payload, totp_code, selfie_b64, action) -> None:
         err_text = str(err)
@@ -459,6 +501,8 @@ class MainWindow(QWidget):
         self._stack.setCurrentIndex(2)
 
     def _return_to_idle(self) -> None:
+        self._idle_label.setText("Ready to Scan")
+        self._idle_sub.setText("Tap your NFC pass or show a QR code")
         self._stack.setCurrentIndex(0)
         self._qr_thread.resume()
 
@@ -552,15 +596,18 @@ class MainWindow(QWidget):
         if dlg.exec():
             self._nfc_thread.stop()
             self._qr_thread.stop()
+            self._scan_pool.shutdown(wait=False)
             self.api.close()
             self.offline.close()
             self.api = ApiClient(self.config)
             self.offline = OfflineManager(self.config.offline_cache_path, self.config.api_key or "dev")
+            self._scan_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
             self._start_threads()
 
     # ================================================================= Cleanup
 
     def closeEvent(self, event) -> None:
+        self._scan_pool.shutdown(wait=False)
         self._nfc_thread.stop()
         self._qr_thread.stop()
         self.api.close()

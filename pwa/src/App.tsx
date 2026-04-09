@@ -7,6 +7,8 @@ import Home from './pages/Home';
 import Status from './pages/Status';
 import History from './pages/History';
 import Messages from './pages/Messages';
+import MyPass from './pages/MyPass';
+import Leaderboard from './pages/Leaderboard';
 import Login from './pages/Login';
 
 function ProtectedLayout() {
@@ -58,8 +60,10 @@ function ProtectedLayout() {
       <main className="flex-1 overflow-y-auto pb-20">
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/pass" element={<MyPass />} />
           <Route path="/status" element={<Status />} />
           <Route path="/history" element={<History />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/messages" element={<Messages onUnreadChange={setUnreadCount} />} />
         </Routes>
       </main>
@@ -68,9 +72,10 @@ function ProtectedLayout() {
       <nav className="fixed bottom-0 inset-x-0 bg-neo-surface border-t border-light flex safe-bottom shadow-neo-sm">
         {[
           { to: '/', label: 'Home', icon: '\u{1F3E0}' },
+          { to: '/pass', label: 'Pass', icon: '\u{1F4F1}' },
           { to: '/status', label: 'Hours', icon: '\u{1F4CA}' },
-          { to: '/history', label: 'History', icon: '\u{1F4CB}' },
-          { to: '/messages', label: 'Messages', icon: '\u{1F514}' },
+          { to: '/leaderboard', label: 'Rank', icon: '\u{1F3C6}' },
+          { to: '/messages', label: 'Inbox', icon: '\u{1F514}' },
         ].map((item) => (
           <NavLink
             key={item.to}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getMembers, createMember, checkoutAll, type Member, type MemberPage, type CreateMemberData } from '../api/client';
+import { getMembers, createMember, checkoutAll, getSeasons, importMembers, type Member, type MemberPage, type CreateMemberData, type Season, type ImportResult } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import DataTable from '../components/DataTable';
 import Modal from '../components/Modal';
@@ -15,6 +15,10 @@ export default function Members() {
   const [saving, setSaving] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [checkingOutAll, setCheckingOutAll] = useState(false);
+  const [seasons, setSeasons] = useState<Season[]>([]);
+  const [showImport, setShowImport] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importing, setImporting] = useState(false);
   const { toast } = useToast();
 
   const PAGE_SIZE = 50;
@@ -24,6 +28,10 @@ export default function Members() {
   }, [page]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    getSeasons().then(setSeasons).catch(() => {});
+  }, []);
 
   const handleCreate = async () => {
     setSaving(true);
@@ -50,6 +58,24 @@ export default function Members() {
       toast.error(err instanceof Error ? err.message : 'Failed to checkout all');
     } finally {
       setCheckingOutAll(false);
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const result = await importMembers(file);
+      setImportResult(result);
+      setShowImport(true);
+      toast.success(`${result.total_imported} member(s) imported`);
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setImporting(false);
+      e.target.value = '';
     }
   };
 
@@ -91,6 +117,10 @@ export default function Members() {
           >
             {checkingOutAll ? 'Closing...' : 'Log Out All'}
           </button>
+          <label className={`neo-btn cursor-pointer ${importing ? 'opacity-50' : ''}`}>
+            {importing ? 'Importing...' : 'CSV Import'}
+            <input type="file" accept=".csv" onChange={handleImport} className="hidden" disabled={importing} />
+          </label>
           <button
             onClick={() => setShowAdd(true)}
             className="neo-btn neo-btn-fill-secondary"
@@ -138,6 +168,21 @@ export default function Members() {
               <option value="admin">Admin</option>
             </select>
           </div>
+          <div>
+            <label className="neo-label">Season</label>
+            <select
+              value={form.season_id || ''}
+              onChange={(e) => setForm((f) => ({ ...f, season_id: e.target.value || undefined }))}
+              className="neo-select"
+            >
+              <option value="">Auto (active season)</option>
+              {seasons.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}{s.is_active ? ' (active)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={() => setShowAdd(false)} className="neo-btn text-neo-muted">Cancel</button>
             <button
@@ -156,6 +201,41 @@ export default function Members() {
         onClose={() => setSelectedMemberId(null)}
         onChanged={refresh}
       />
+
+      <Modal open={showImport} onClose={() => { setShowImport(false); setImportResult(null); }} title="Import Results">
+        {importResult && (
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            <p className="text-sm text-neo-muted">
+              {importResult.total_imported} imported, {importResult.total_errors} error(s)
+            </p>
+            {importResult.imported.length > 0 && (
+              <div>
+                <h4 className="font-semibold text-neo-dark text-sm mb-1">Created Members</h4>
+                <table className="w-full text-xs">
+                  <thead><tr className="text-left text-neo-muted"><th className="pr-2">ID</th><th className="pr-2">Name</th><th className="pr-2">Password</th></tr></thead>
+                  <tbody>
+                    {importResult.imported.map((m) => (
+                      <tr key={m.member_number}>
+                        <td className="pr-2 py-0.5">{m.member_number}</td>
+                        <td className="pr-2 py-0.5">{m.name}</td>
+                        <td className="pr-2 py-0.5 font-mono">{m.password}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {importResult.errors.length > 0 && (
+              <div>
+                <h4 className="font-semibold text-neo-dark text-sm mb-1">Errors</h4>
+                {importResult.errors.map((e, i) => (
+                  <p key={i} className="text-xs text-danger">Row {e.row}: {e.error} ({e.member_number})</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

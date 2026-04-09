@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiFetch } from '../api/client';
@@ -61,6 +62,9 @@ export default function Status() {
       <ProgressBar label="Today" value={hours.hours_today} cap={hours.daily_cap} />
       <ProgressBar label="This Week" value={hours.hours_this_week} cap={hours.weekly_cap} />
       <ProgressBar label="Season" value={hours.hours_this_season} cap={hours.season_cap} />
+      <Link to="/history" className="neo-btn w-full text-center block py-2 text-sm">
+        View Session History
+      </Link>
     </div>
   );
 }

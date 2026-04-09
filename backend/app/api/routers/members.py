@@ -35,6 +35,7 @@ from app.schemas.member import (
     SessionListOut,
     SessionOut,
 )
+from app.core.encryption import pgp_decrypt
 from app.services.audit import log_event
 from app.services.hours import compute_member_hours
 from app.services.season import get_active_season
@@ -90,6 +91,55 @@ async def _get_member_or_404(db: AsyncSession, member_id: uuid.UUID) -> Member:
 
 
 
+
+
+# ---------------------------------------------------------------------------
+# GET /members/leaderboard — any authenticated member
+# ---------------------------------------------------------------------------
+
+@router.get("/leaderboard")
+async def get_leaderboard(
+    db: AsyncSession = Depends(get_db),
+    current: Member = Depends(get_current_member),
+):
+    """Return top members by total hours for the active season."""
+    season = await get_active_season(db)
+
+    # Sum closed session durations grouped by member
+    result = await db.execute(
+        select(
+            Session.member_id,
+            Member.member_number,
+            func.pgp_sym_decrypt(Member.name_encrypted, settings.PGP_SYM_KEY).label("name"),
+            func.coalesce(func.sum(Session.duration_minutes), 0).label("total_minutes"),
+        )
+        .join(Member, Session.member_id == Member.id)
+        .where(
+            and_(
+                Session.season_id == season.id,
+                Session.status == SessionStatus.closed,
+                Member.is_active == True,  # noqa: E712
+            )
+        )
+        .group_by(Session.member_id, Member.member_number, Member.name_encrypted)
+        .order_by(func.sum(Session.duration_minutes).desc())
+        .limit(50)
+    )
+    rows = result.all()
+
+    return {
+        "season_name": season.name,
+        "entries": [
+            {
+                "rank": i + 1,
+                "member_id": str(row.member_id),
+                "member_number": row.member_number,
+                "name": row.name or "",
+                "total_hours": round((row.total_minutes or 0) / 60, 1),
+            }
+            for i, row in enumerate(rows)
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +319,7 @@ async def transfer_pass(
 
     member.device_push_token = None
     member.device_platform = DevicePlatform.none
+    member.device_fingerprint = None
 
     await db.flush()
 
@@ -280,6 +331,31 @@ async def transfer_pass(
         detail={"member_number": member.member_number},
         ip_address=request.client.host if request.client else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /members/{id}/qr-code — self only; returns TOTP secret for QR display
+# ---------------------------------------------------------------------------
+
+@router.get("/{member_id}/qr-code")
+async def get_qr_code_data(
+    member_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: Member = Depends(get_current_member),
+):
+    """Return the member's TOTP secret and pass serial for client-side QR generation."""
+    _require_admin_or_self(current, member_id)
+    member = await _get_member_or_404(db, member_id)
+
+    if not member.totp_secret_encrypted or not member.pass_serial:
+        raise HTTPException(status_code=404, detail="No pass provisioned for this member")
+
+    totp_secret = await pgp_decrypt(db, member.totp_secret_encrypted)
+
+    return {
+        "serial": str(member.pass_serial),
+        "totp_secret": totp_secret,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,18 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 
+async function getDeviceFingerprint(): Promise<string> {
+  const raw = [
+    navigator.userAgent,
+    `${screen.width}x${screen.height}`,
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+    navigator.language,
+    navigator.hardwareConcurrency ?? '',
+  ].join('|');
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default function Login() {
   const { login, isAuthenticated, loading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -18,10 +30,11 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
+      const fp = await getDeviceFingerprint();
+      await login(email, password, { device_fingerprint: fp });
       navigate('/');
-    } catch {
-      toast.error('Invalid email or password');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Invalid email or password');
     } finally {
       setLoading(false);
     }

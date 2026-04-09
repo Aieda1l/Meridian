@@ -8,6 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 class LoginRequest(BaseModel):
     email: str = Field(..., description="Member email address")
     password: str = Field(..., min_length=1)
+    device_fingerprint: str | None = Field(None, description="Client device fingerprint for anti-cheat")
 
 
 class TokenResponse(BaseModel):

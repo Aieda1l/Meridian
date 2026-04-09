@@ -75,6 +75,9 @@ class Member(TimestampMixin, Base):
         Boolean, nullable=False, server_default="true"
     )
     photo_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    device_fingerprint: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, doc="Client-side device fingerprint for anti-cheat binding"
+    )
     season_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("seasons.id"), nullable=True
     )

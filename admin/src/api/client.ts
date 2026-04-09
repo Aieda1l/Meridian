@@ -140,6 +140,32 @@ export const getExport = async (opts: ExportOptions) => {
   URL.revokeObjectURL(url);
 };
 
+export const importMembers = async (file: File) => {
+  const token = localStorage.getItem('admin_access_token');
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/admin/import-members`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
+    body: formData,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text;
+    try { const json = JSON.parse(text); message = json.detail || text; } catch { message = text.slice(0, 200); }
+    throw new Error(message);
+  }
+  return res.json() as Promise<ImportResult>;
+};
+
+export interface ImportResult {
+  imported: Array<{ member_number: string; name: string; email: string; password: string; pass_serial: string }>;
+  errors: Array<{ row: number; error: string; member_number: string }>;
+  total_imported: number;
+  total_errors: number;
+}
+
 export const forceCheckout = (sessionId: string) =>
   apiFetch<{ session_id: string; status: string; message: string }>(
     `/admin/sessions/${sessionId}/force-checkout`,

@@ -45,6 +45,11 @@ Full-stack attendance tracking system for FRC robotics teams. Members check in a
 - **Audit trail** — Immutable `admin_events` log for every state change (logins, member CRUD, pass transfers, approvals)
 - **PII encryption** — All names, emails, and phones encrypted at rest with pgcrypto `pgp_sym_encrypt`
 - **Push notifications** — APNs (wallet pass updates) and FCM (Android/PWA alerts)
+- **In-app QR code** — PWA "My Pass" page with live TOTP-rotating QR code (client-side generation, 30s countdown)
+- **Wallet pass install** — One-tap Apple/Google Wallet pass download from PWA for NFC tap check-in
+- **Anti-cheat device binding** — SHA-256 device fingerprint bound on first login; rejects logins from different devices (admin can clear via pass transfer)
+- **Bulk CSV import** — Admin uploads CSV (member_number, name, email, phone, role) to create members in bulk with auto-generated passwords and season assignment
+- **Attendance leaderboard** — Ranked member list by total hours for the active season
 
 ## Project Structure
 
@@ -100,6 +105,8 @@ Meridian/
 | `POST /members/{id}/transfer-pass` | Admin | Clear device binding |
 | `GET /members/{id}/hours` | Admin/Self | Daily/weekly/season hour totals |
 | `GET /members/{id}/sessions` | Admin/Self | Paginated session history |
+| `GET /members/{id}/qr-code` | Admin/Self | TOTP secret + serial for QR display |
+| `GET /members/leaderboard` | Member | Top 50 members by hours this season |
 | `POST /scanner/checkin` | Scanner | NFC/QR check-in |
 | `POST /scanner/checkout` | Scanner | NFC/QR checkout + hour cap eval |
 | `GET /scanner/cache` | Scanner | Signed member cache snapshot |
@@ -123,6 +130,7 @@ Meridian/
 | `GET/POST /admin/seasons` | Admin | Season CRUD + rollover |
 | `GET /admin/export` | Admin/Mentor | CSV or PDF download |
 | `GET /admin/audit-log` | Admin | Paginated audit trail |
+| `POST /admin/import-members` | Admin | Bulk CSV member import |
 | `POST/DELETE /passes/register/...` | Apple | PassKit device registration |
 | `GET /passes/latest/...` | Apple | Updated .pkpass fetch |
 | `GET /passes/download/{id}` | Member | Download pass (.pkpass or Google Wallet link) |
@@ -212,6 +220,7 @@ For the frontend SPAs, build and serve as static files or deploy separately (Ver
 - Geofence coordinates validated server-side (lat/lng range checks, minimum polygon points)
 - Session state machine enforces open-to-closed transitions (prevents double-close)
 - Concurrent token refresh requests coalesced to prevent race conditions
+- Device fingerprint binding on student login prevents proxy check-ins from different devices
 - API error responses parsed as structured JSON (server internals not leaked to clients)
 - Scanner kiosk uses typed `ApiError` exceptions with status codes (no string-matching on error messages)
 - QR reader thread uses mutex-protected pause flag to prevent race conditions
