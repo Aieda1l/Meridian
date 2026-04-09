@@ -48,3 +48,10 @@ class AutoTimeoutResponse(BaseModel):
 
 class SessionDenyRequest(BaseModel):
     reason: str | None = Field(None, max_length=500, description="Optional reason for denying the session")
+
+
+class SessionEditRequest(BaseModel):
+    check_in_at: datetime | None = None
+    check_out_at: datetime | None = None
+    status: str | None = Field(None, pattern="^(open|closed|flagged|approved|denied)$")
+    reason: str | None = Field(None, max_length=500, description="Audit log note for this edit")

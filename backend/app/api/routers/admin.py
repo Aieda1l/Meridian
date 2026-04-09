@@ -5,6 +5,7 @@
 - POST  /admin/seasons                         — create new season (deactivates current, rolls over)
 - PATCH /admin/seasons/{id}                    — update season
 - PATCH /admin/sessions/{id}/force-checkout    — force-close an open session
+- PATCH /admin/sessions/{id}                   — edit session times/status (manual hour correction)
 - POST  /admin/checkout-all                    — close all open sessions
 - GET   /admin/export                          — download CSV or PDF report
 - GET   /admin/audit-log                       — paginated audit log
@@ -52,6 +53,7 @@ from app.schemas.admin import (
     SeasonUpdate,
 )
 from app.schemas.geofence_zone import GeofenceZoneCreate, GeofenceZoneOut, GeofenceZoneUpdate
+from app.schemas.session import SessionEditRequest
 from app.services.audit import log_event
 from app.services.export import generate_csv, generate_pdf
 
@@ -345,6 +347,101 @@ async def force_checkout_session(
         status=session.status.value,
         message="Session closed by admin",
     )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /admin/sessions/{id} — admin only; edit session times/status
+# ---------------------------------------------------------------------------
+
+@router.patch("/sessions/{session_id}")
+async def edit_session(
+    session_id: uuid.UUID,
+    body: SessionEditRequest,
+    request: Request,
+    member: Member = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit an existing session's check-in/check-out times or status.
+
+    Recomputes ``duration_minutes`` automatically from the resulting
+    timestamps. Writes an audit log entry capturing the before/after state
+    and the optional admin-provided reason.
+    """
+    from app.services.checkout import calculate_duration_minutes
+
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    before = {
+        "check_in_at": session.check_in_at.isoformat() if session.check_in_at else None,
+        "check_out_at": session.check_out_at.isoformat() if session.check_out_at else None,
+        "duration_minutes": session.duration_minutes,
+        "status": session.status.value,
+    }
+
+    if body.check_in_at is not None:
+        session.check_in_at = body.check_in_at
+    if body.check_out_at is not None:
+        session.check_out_at = body.check_out_at
+    if body.status is not None:
+        session.status = SessionStatus(body.status)
+        # If admin explicitly reopens, clear checkout fields
+        if session.status == SessionStatus.open:
+            session.check_out_at = None
+            session.check_out_method = None
+            session.duration_minutes = None
+
+    # Validate ordering
+    if session.check_out_at is not None and session.check_in_at is not None:
+        if session.check_out_at <= session.check_in_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="check_out_at must be after check_in_at",
+            )
+
+    # Recompute duration whenever the session is closed
+    if session.check_out_at is not None and session.status != SessionStatus.open:
+        session.duration_minutes = calculate_duration_minutes(
+            session.check_in_at, session.check_out_at
+        )
+        # If this was an open session being closed via edit, record method
+        if session.check_out_method is None:
+            session.check_out_method = CheckOutMethod.admin
+
+    await db.flush()
+
+    after = {
+        "check_in_at": session.check_in_at.isoformat() if session.check_in_at else None,
+        "check_out_at": session.check_out_at.isoformat() if session.check_out_at else None,
+        "duration_minutes": session.duration_minutes,
+        "status": session.status.value,
+    }
+
+    await log_event(
+        db,
+        event_type="session_edited",
+        actor_id=member.id,
+        target_id=session.id,
+        detail={
+            "member_id": str(session.member_id),
+            "before": before,
+            "after": after,
+            "reason": body.reason,
+        },
+        ip_address=request.client.host if request.client else None,
+    )
+
+    await db.flush()
+
+    return {
+        "session_id": str(session.id),
+        "status": session.status.value,
+        "check_in_at": session.check_in_at.isoformat() if session.check_in_at else None,
+        "check_out_at": session.check_out_at.isoformat() if session.check_out_at else None,
+        "duration_minutes": session.duration_minutes,
+    }
 
 
 # ---------------------------------------------------------------------------

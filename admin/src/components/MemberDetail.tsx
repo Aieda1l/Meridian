@@ -4,12 +4,24 @@ import {
   getMemberSessions,
   getMemberHours,
   forceCheckout,
+  editSession,
   type Member,
   type MemberHours,
   type MemberSessionItem,
 } from '../api/client';
 import { useToast } from '../context/ToastContext';
 import Modal from './Modal';
+
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function localInputToIso(local: string): string {
+  return new Date(local).toISOString();
+}
 
 interface MemberDetailProps {
   memberId: string | null;
@@ -20,23 +32,29 @@ interface MemberDetailProps {
 export default function MemberDetail({ memberId, onClose, onChanged }: MemberDetailProps) {
   const [member, setMember] = useState<Member | null>(null);
   const [hours, setHours] = useState<MemberHours | null>(null);
-  const [sessions, setSessions] = useState<MemberSessionItem[]>([]);
+  const [openSessions, setOpenSessions] = useState<MemberSessionItem[]>([]);
+  const [recentSessions, setRecentSessions] = useState<MemberSessionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
+  const [editing, setEditing] = useState<MemberSessionItem | null>(null);
+  const [editForm, setEditForm] = useState({ check_in_at: '', check_out_at: '', status: 'closed', reason: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
   const { toast } = useToast();
 
   const refresh = useCallback(async () => {
     if (!memberId) return;
     setLoading(true);
     try {
-      const [m, h, s] = await Promise.all([
+      const [m, h, open, recent] = await Promise.all([
         getMember(memberId),
         getMemberHours(memberId).catch(() => null),
         getMemberSessions(memberId, 1, 20, 'open').catch(() => ({ items: [] })),
+        getMemberSessions(memberId, 1, 20).catch(() => ({ items: [] })),
       ]);
       setMember(m);
       setHours(h);
-      setSessions(s.items);
+      setOpenSessions(open.items);
+      setRecentSessions(recent.items);
     } catch {
       toast.error('Failed to load member details');
     } finally {
@@ -60,6 +78,49 @@ export default function MemberDetail({ memberId, onClose, onChanged }: MemberDet
     } finally {
       setCheckingOut(null);
     }
+  };
+
+  const openEditModal = (s: MemberSessionItem) => {
+    setEditing(s);
+    setEditForm({
+      check_in_at: isoToLocalInput(s.check_in_at),
+      check_out_at: isoToLocalInput(s.check_out_at),
+      status: s.status,
+      reason: '',
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editing) return;
+    setSavingEdit(true);
+    try {
+      const payload: Record<string, unknown> = {
+        status: editForm.status,
+        reason: editForm.reason || undefined,
+      };
+      if (editForm.check_in_at) payload.check_in_at = localInputToIso(editForm.check_in_at);
+      if (editForm.check_out_at) {
+        payload.check_out_at = localInputToIso(editForm.check_out_at);
+      } else if (editForm.status === 'open') {
+        payload.check_out_at = null;
+      }
+      await editSession(editing.id, payload);
+      toast.success('Session updated');
+      setEditing(null);
+      onChanged?.();
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update session');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const formatDuration = (mins: number | null) => {
+    if (mins == null) return 'ongoing';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
 
   if (!memberId) return null;
@@ -127,15 +188,15 @@ export default function MemberDetail({ memberId, onClose, onChanged }: MemberDet
               letterSpacing: '0.05em',
               marginBottom: '0.5rem',
             }}>
-              Open Sessions ({sessions.length})
+              Open Sessions ({openSessions.length})
             </h4>
-            {sessions.length === 0 ? (
+            {openSessions.length === 0 ? (
               <p className="text-neo-muted text-sm" style={{ padding: '0.75rem 0' }}>
                 No open sessions
               </p>
             ) : (
               <div className="space-y-2">
-                {sessions.map((s) => (
+                {openSessions.map((s) => (
                   <div
                     key={s.id}
                     className="neo-card"
@@ -151,16 +212,82 @@ export default function MemberDetail({ memberId, onClose, onChanged }: MemberDet
                         Checked in {new Date(s.check_in_at).toLocaleString()}
                       </div>
                       <div className="text-xs text-neo-muted">
-                        via {s.check_in_method} &middot; {s.duration_minutes != null ? `${s.duration_minutes} min` : 'ongoing'}
+                        via {s.check_in_method} &middot; {formatDuration(s.duration_minutes)}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => openEditModal(s)}
+                        className="neo-btn text-xs py-1 px-3"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleForceCheckout(s.id)}
+                        disabled={checkingOut === s.id}
+                        className="neo-btn text-xs py-1 px-3"
+                        style={{ color: 'var(--neo-danger)', fontWeight: 600 }}
+                      >
+                        {checkingOut === s.id ? 'Closing...' : 'Force Checkout'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Recent Sessions (editable) */}
+          <div>
+            <h4 style={{
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              color: 'var(--neo-text-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              marginBottom: '0.5rem',
+            }}>
+              Recent Sessions
+            </h4>
+            {recentSessions.length === 0 ? (
+              <p className="text-neo-muted text-sm" style={{ padding: '0.75rem 0' }}>
+                No sessions recorded
+              </p>
+            ) : (
+              <div className="space-y-2" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                {recentSessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className="neo-card"
+                    style={{
+                      padding: '0.625rem 0.875rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem',
+                    }}
+                  >
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="text-xs text-neo-dark" style={{ fontWeight: 500 }}>
+                        {new Date(s.check_in_at).toLocaleString()}
+                        {s.check_out_at && (
+                          <> &rarr; {new Date(s.check_out_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</>
+                        )}
+                      </div>
+                      <div className="text-xs text-neo-muted">
+                        <span className={`neo-badge-soft ${
+                          s.status === 'flagged' ? 'neo-badge-warning' :
+                          s.status === 'denied' ? 'neo-badge-danger' :
+                          s.status === 'approved' || s.status === 'closed' ? 'neo-badge-success' : ''
+                        }`} style={{ marginRight: '0.375rem' }}>{s.status}</span>
+                        {formatDuration(s.duration_minutes)}
                       </div>
                     </div>
                     <button
-                      onClick={() => handleForceCheckout(s.id)}
-                      disabled={checkingOut === s.id}
+                      onClick={() => openEditModal(s)}
                       className="neo-btn text-xs py-1 px-3"
-                      style={{ color: 'var(--neo-danger)', fontWeight: 600 }}
                     >
-                      {checkingOut === s.id ? 'Closing...' : 'Force Checkout'}
+                      Edit
                     </button>
                   </div>
                 ))}
@@ -170,6 +297,67 @@ export default function MemberDetail({ memberId, onClose, onChanged }: MemberDet
         </div>
       ) : (
         <div className="py-8 text-center text-neo-muted">Member not found</div>
+      )}
+
+      {/* Edit Session Modal */}
+      {editing && (
+        <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit Session">
+          <div className="space-y-3">
+            <div>
+              <label className="neo-label">Check-in time</label>
+              <input
+                type="datetime-local"
+                value={editForm.check_in_at}
+                onChange={(e) => setEditForm((f) => ({ ...f, check_in_at: e.target.value }))}
+                className="neo-input"
+              />
+            </div>
+            <div>
+              <label className="neo-label">Check-out time</label>
+              <input
+                type="datetime-local"
+                value={editForm.check_out_at}
+                onChange={(e) => setEditForm((f) => ({ ...f, check_out_at: e.target.value }))}
+                className="neo-input"
+              />
+              <p className="text-xs text-neo-muted mt-1">Leave blank and set status to "open" to reopen the session.</p>
+            </div>
+            <div>
+              <label className="neo-label">Status</label>
+              <select
+                value={editForm.status}
+                onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}
+                className="neo-select"
+              >
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+                <option value="flagged">Flagged</option>
+                <option value="approved">Approved</option>
+                <option value="denied">Denied</option>
+              </select>
+            </div>
+            <div>
+              <label className="neo-label">Reason (audit log)</label>
+              <input
+                type="text"
+                value={editForm.reason}
+                onChange={(e) => setEditForm((f) => ({ ...f, reason: e.target.value }))}
+                placeholder="e.g. Corrected checkout time per member request"
+                className="neo-input"
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setEditing(null)} className="neo-btn text-neo-muted">Cancel</button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={savingEdit}
+                className="neo-btn neo-btn-fill-secondary disabled:opacity-50"
+              >
+                {savingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </Modal>
   );

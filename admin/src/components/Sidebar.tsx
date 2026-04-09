@@ -5,6 +5,7 @@ import { useUnread } from '../context/UnreadContext';
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '\u{1F4CA}' },
   { to: '/members', label: 'Members', icon: '\u{1F465}' },
+  { to: '/seasons', label: 'Seasons', icon: '\u{1F4C5}', adminOnly: true },
   { to: '/approvals', label: 'Approvals', icon: '\u2705' },
   { to: '/messages', label: 'Messages', icon: '\u{1F514}' },
   { to: '/reports', label: 'Reports', icon: '\u{1F4C4}' },

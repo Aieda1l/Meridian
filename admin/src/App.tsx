@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Members from './pages/Members';
+import Seasons from './pages/Seasons';
 import Approvals from './pages/Approvals';
 import Reports from './pages/Reports';
 import Geofences from './pages/Geofences';
@@ -33,6 +34,7 @@ function ProtectedLayout() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/members" element={<Members />} />
+          {role === 'admin' && <Route path="/seasons" element={<Seasons />} />}
           <Route path="/approvals" element={<Approvals />} />
           <Route path="/reports" element={<Reports />} />
           {role === 'admin' && <Route path="/geofences" element={<Geofences />} />}

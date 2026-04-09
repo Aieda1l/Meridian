@@ -172,6 +172,25 @@ export const forceCheckout = (sessionId: string) =>
     { method: 'PATCH' },
   );
 
+export interface SessionEditData {
+  check_in_at?: string;
+  check_out_at?: string | null;
+  status?: string;
+  reason?: string;
+}
+
+export const editSession = (sessionId: string, data: SessionEditData) =>
+  apiFetch<{
+    session_id: string;
+    status: string;
+    check_in_at: string | null;
+    check_out_at: string | null;
+    duration_minutes: number | null;
+  }>(`/admin/sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+
 export const checkoutAll = () =>
   apiFetch<{ closed_count: number; session_ids: string[] }>(
     '/admin/checkout-all',
