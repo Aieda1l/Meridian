@@ -31,4 +31,4 @@ jobs:
           python -m pip install
           pytest pytest-asyncio pyotp redis sqlalchemy pydantic pydantic-settings
       - name: Run tests
-        run: pytest -q
+        run: python -m pytest -q
