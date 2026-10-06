@@ -26,9 +26,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/pyproject.toml
-      - name: Install test dependencies
-        run: >-
-          python -m pip install
-          pytest pytest-asyncio pyotp redis sqlalchemy pydantic pydantic-settings
+      - name: Install backend and test dependencies
+        run: python -m pip install -e ".[dev]"
       - name: Run tests
         run: python -m pytest -q
