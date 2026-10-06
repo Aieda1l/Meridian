@@ -95,6 +95,7 @@ class Session(TimestampMixin, Base):
         Index(
             "ix_sessions_open_member",
             "member_id",
+            unique=True,
             postgresql_where=(status == SessionStatus.open.value),
         ),
     )

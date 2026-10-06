@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
+import secrets
 import sys
 import uuid
 from datetime import date, timedelta
@@ -48,7 +50,7 @@ ADMIN_PASSWORD = "admin"  # change in production!
 
 SCANNER_ID = "MAIN_ENTRANCE"
 SCANNER_NAME = "Main Entrance Scanner"
-SCANNER_API_KEY = "dev-scanner-key-12345"  # raw key — will be bcrypt-hashed
+SCANNER_API_KEY_ENV = "DEV_SCANNER_API_KEY"
 
 SEASON_NAME = "2025-2026 Season"
 
@@ -85,6 +87,7 @@ async def _pgp_encrypt_totp(db: AsyncSession, secret: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 async def seed(reset: bool = False) -> None:
+    created_scanner_api_key: str | None = None
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -198,20 +201,25 @@ async def seed(reset: bool = False) -> None:
         if exists:
             print(f"Scanner already exists: {SCANNER_ID!r}")
         else:
+            created_scanner_api_key = os.getenv(SCANNER_API_KEY_ENV, "").strip() or secrets.token_urlsafe(32)
             scanner = Scanner(
                 id=SCANNER_ID,
                 name=SCANNER_NAME,
-                api_key_hashed=_hash(SCANNER_API_KEY),
+                api_key_hashed=_hash(created_scanner_api_key),
             )
             db.add(scanner)
             await db.flush()
-            print(f"Created scanner: {SCANNER_ID!r}  (api_key={SCANNER_API_KEY!r})")
+            print(f"Created scanner: {SCANNER_ID!r}")
 
         await db.commit()
 
     await engine.dispose()
     print("\nSeed complete. You can now log in to the admin panel or test the scanner API.")
-    print(f"  Scanner X-Scanner-Key header value: {SCANNER_API_KEY}")
+    if created_scanner_api_key:
+        print(f"  Scanner X-Scanner-Key header value: {created_scanner_api_key}")
+        print("  Copy it into scanner/config.json or set DEV_SCANNER_API_KEY before seeding.")
+    else:
+        print("  Scanner already existed; its API key was left unchanged.")
 
 
 # ---------------------------------------------------------------------------
