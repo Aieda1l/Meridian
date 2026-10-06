@@ -169,6 +169,10 @@ class MainWindow(QWidget):
         self.offline = OfflineManager(config.offline_cache_path, config.api_key or "dev")
         self._online = False
         self._cache_version = 0
+        self._cache_loaded = False
+        self._offline_members: set[str] = set()
+        self._offline_open_serials: set[str] = set()
+        self._load_offline_cache()
         self._scan_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
         self.setWindowFlags(
@@ -360,6 +364,32 @@ class MainWindow(QWidget):
 
         return tray
 
+    # ================================================================= Offline cache
+
+    def _load_offline_cache(self, data: dict | None = None) -> None:
+        """Load cached member state used when the backend is unreachable."""
+        cache_data = data if data is not None else self.offline.load_cache()
+        if not cache_data:
+            self._cache_loaded = False
+            self._cache_version = 0
+            self._offline_members = set()
+            self._offline_open_serials = set()
+            return
+
+        self._cache_loaded = True
+        self._cache_version = int(cache_data.get("cache_version", 0))
+        members = cache_data.get("members", [])
+        self._offline_members = {
+            str(member["pass_serial"])
+            for member in members
+            if member.get("pass_serial")
+        }
+        self._offline_open_serials = {
+            str(member["pass_serial"])
+            for member in members
+            if member.get("pass_serial") and member.get("has_open_session")
+        }
+
     # ================================================================= Threads
 
     def _start_threads(self) -> None:
@@ -433,24 +463,25 @@ class MainWindow(QWidget):
                 QTimer.singleShot(50, _check_future)
                 return
             try:
-                result_type, payload = future.result()
+                result_type, payload, action = future.result()
             except Exception as exc:
-                self._handle_scan_error(exc, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
+                self._handle_scan_error(exc, serial, method, nfc_payload, totp_code, selfie_b64, "auto")
                 QTimer.singleShot(SUCCESS_DISPLAY_MS, self._return_to_idle)
                 return
 
             if result_type == "checkin":
+                self._offline_open_serials.add(serial)
                 name = payload.get("member_name", "Member")
                 self._show_success(name, "Checked In")
                 self._event_log.add_event(f"\u2714  {name} checked in", success=True)
             elif result_type == "checkout":
+                self._offline_open_serials.discard(serial)
                 name = payload.get("member_name", "Member")
                 dur = payload.get("duration_minutes", 0)
                 self._show_success(name, f"Checked Out  \u2022  {dur} min")
                 self._event_log.add_event(f"\u2714  {name} out ({dur}m)", success=True)
             elif result_type == "error":
-                err = payload
-                self._handle_scan_error(err, serial, method, nfc_payload, totp_code, selfie_b64, "checkin")
+                self._handle_scan_error(payload, serial, method, nfc_payload, totp_code, selfie_b64, action)
 
             QTimer.singleShot(SUCCESS_DISPLAY_MS, self._return_to_idle)
 
@@ -461,33 +492,62 @@ class MainWindow(QWidget):
         """Blocking API calls — runs in ThreadPoolExecutor, returns (type, payload)."""
         try:
             result = self.api.checkin(serial, nfc_payload, totp_code, method, selfie_b64)
-            return ("checkin", result)
+            return ("checkin", result, "checkin")
         except ApiError as checkin_err:
             if checkin_err.status_code == 409:
                 try:
                     result = self.api.checkout(serial, nfc_payload, totp_code, method, selfie_b64)
-                    return ("checkout", result)
+                    return ("checkout", result, "checkout")
                 except Exception as checkout_err:
-                    return ("error", checkout_err)
-            return ("error", checkin_err)
+                    return ("error", checkout_err, "checkout")
+            return ("error", checkin_err, "checkin")
         except Exception as exc:
-            return ("error", exc)
+            # A transport failure can happen before the server tells us whether
+            # this scan is a check-in or checkout. Resolve that from cached state.
+            return ("error", exc, "auto")
 
     def _handle_scan_error(self, err, serial, method, nfc_payload, totp_code, selfie_b64, action) -> None:
         err_text = str(err)
+
+        # ApiError means the backend replied; other exceptions are treated as a
+        # connectivity failure immediately instead of waiting for the next heartbeat.
+        if not isinstance(err, ApiError):
+            self._online = False
+            self.pill_api.set_error("API")
+
         if self._online:
             self._show_error(f"Scan failed: {err_text[:80]}")
             self._event_log.add_event(f"\u2718  Error: {err_text[:50]}", success=False)
+            return
+
+        if not self._cache_loaded:
+            self._show_error("Offline  \u2022  No member cache available")
+            self._event_log.add_event("\u26A0  Offline cache unavailable", success=False)
+            return
+
+        if serial not in self._offline_members:
+            self._show_error("Offline  \u2022  Member not in cache")
+            self._event_log.add_event("\u2718  Unknown member while offline", success=False)
+            return
+
+        if action == "auto":
+            action = "checkout" if serial in self._offline_open_serials else "checkin"
+
+        self.offline.queue_event({
+            "serial": serial, "nfc_payload": nfc_payload,
+            "totp_code": totp_code, "method": method,
+            "selfie_base64": selfie_b64, "action": action,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+        if action == "checkout":
+            self._offline_open_serials.discard(serial)
         else:
-            self.offline.queue_event({
-                "serial": serial, "nfc_payload": nfc_payload,
-                "totp_code": totp_code, "method": method,
-                "selfie_base64": selfie_b64, "action": action,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
-            self._show_error("Offline  \u2022  Scan queued")
-            self._event_log.add_event("\u23F3  Queued offline scan", success=False)
-            self._update_queue_pill()
+            self._offline_open_serials.add(serial)
+
+        self._show_error(f"Offline  \u2022  {action.title()} queued")
+        self._event_log.add_event(f"\u23F3  Queued offline {action}", success=False)
+        self._update_queue_pill()
 
     # ================================================================= Display states
 
@@ -524,7 +584,7 @@ class MainWindow(QWidget):
             resp = self.api.heartbeat(self.config.scanner_id, self._cache_version, self.offline.queue_count)
             self._online = True
             self.pill_api.set_active("API")
-            if resp.get("cache_stale"):
+            if resp.get("cache_stale") or not self._cache_loaded:
                 self._refresh_cache()
         except Exception:
             self._online = False
@@ -534,7 +594,7 @@ class MainWindow(QWidget):
         try:
             cache_data = self.api.fetch_cache()
             self.offline.save_cache(cache_data)
-            self._cache_version = cache_data.get("cache_version", self._cache_version + 1)
+            self._load_offline_cache(cache_data)
         except Exception as exc:
             self._event_log.add_event(f"\u26A0  Cache refresh failed: {exc}", success=False)
 
@@ -601,6 +661,7 @@ class MainWindow(QWidget):
             self.offline.close()
             self.api = ApiClient(self.config)
             self.offline = OfflineManager(self.config.offline_cache_path, self.config.api_key or "dev")
+            self._load_offline_cache()
             self._scan_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
             self._start_threads()
 
