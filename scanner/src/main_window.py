@@ -390,6 +390,18 @@ class MainWindow(QWidget):
             if member.get("pass_serial") and member.get("has_open_session")
         }
 
+        # Reapply any unsynced local events so restart-while-offline preserves
+        # the scanner's latest view of each member's session state.
+        for pending in self.offline.get_pending_events():
+            payload = pending.get("payload", {})
+            serial = str(payload.get("serial", ""))
+            if serial not in self._offline_members:
+                continue
+            if payload.get("action") == "checkin":
+                self._offline_open_serials.add(serial)
+            elif payload.get("action") == "checkout":
+                self._offline_open_serials.discard(serial)
+
     # ================================================================= Threads
 
     def _start_threads(self) -> None:
@@ -612,6 +624,9 @@ class MainWindow(QWidget):
             self._update_queue_pill()
             processed = result.get("processed", 0)
             self._event_log.add_event(f"\u2191  Synced {processed} offline events", success=True)
+            # The server may have processed or skipped events; refresh its
+            # canonical open-session state after replay either way.
+            self._refresh_cache()
         except Exception as exc:
             self._event_log.add_event(f"\u26A0  Queue flush failed: {exc}", success=False)
 
