@@ -313,12 +313,18 @@ async def scanner_cache(
     )
     members = result.scalars().all()
 
+    open_result = await db.execute(
+        select(Session.member_id).where(Session.status == SessionStatus.open)
+    )
+    open_member_ids = set(open_result.scalars().all())
+
     members_data = []
     for m in members:
         entry = {
             "id": str(m.id),
             "pass_serial": str(m.pass_serial) if m.pass_serial else None,
             "member_number": m.member_number,
+            "has_open_session": m.id in open_member_ids,
         }
         members_data.append(entry)
 
