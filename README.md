@@ -6,9 +6,9 @@ Meridian is a full-stack attendance system for FRC robotics teams. It combines a
 
 | Admin dashboard | Geofence editor |
 | --- | --- |
-| ![Meridian admin dashboard](docs/screenshots/dashboard.png) | ![Meridian geofence editor](docs/screenshots/geofence.png) |
+| ![Meridian admin dashboard](docs/screenshots/dashboard.jpg) | ![Meridian geofence editor](docs/screenshots/geofence.jpg) |
 
-![Meridian scanner kiosk](docs/screenshots/scanner.png)
+![Meridian scanner kiosk](docs/screenshots/scanner.jpg)
 
 ## Architecture
 
