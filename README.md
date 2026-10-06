@@ -1,231 +1,157 @@
 # Meridian
 
-Full-stack attendance tracking system for FRC robotics teams. Members check in and out via NFC tap or rotating QR code on Apple/Google Wallet passes. The system tracks hours with configurable caps, supports geofence-based auto-checkout, offline scanner mode, self-reported checkouts with admin approval, and CSV/PDF exports.
+Meridian is a full-stack attendance system for FRC robotics teams. It combines a FastAPI backend, React admin dashboard, member PWA, and a PyQt6 scanner kiosk for NFC/QR check-in and checkout, hour tracking, geofence workflows, approvals, reporting, and offline scanner recovery.
+
+## Screenshots
+
+| Admin dashboard | Geofence editor |
+| --- | --- |
+| ![Meridian admin dashboard](docs/screenshots/dashboard.png) | ![Meridian geofence editor](docs/screenshots/geofence.png) |
+
+![Meridian scanner kiosk](docs/screenshots/scanner.png)
 
 ## Architecture
 
-```
-┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  Admin SPA   │   │   PWA/App    │   │   Scanner    │
-│  React+Vite  │   │ React+Cap.   │   │ PyQt6 Kiosk  │
-└──────┬───────┘   └──────┬───────┘   └──────┬───────┘
-       │                  │                   │
-       └──────────────────┼───────────────────┘
-                          │ HTTPS
-                ┌─────────▼─────────┐
-                │   FastAPI Backend  │
-                │  (Railway.app)     │
-                ├────────┬──────────┤
-                │ PostgreSQL  Redis  │
-                └────────┴──────────┘
+```mermaid
+flowchart LR
+    Admin["Admin SPA<br/>React + Vite"] --> API["FastAPI backend"]
+    PWA["Member PWA / Capacitor<br/>React + TypeScript"] --> API
+    Scanner["Scanner kiosk<br/>PyQt6 + NFC + QR"] --> API
+    Scanner <--> Local["Encrypted local cache<br/>+ SQLite event queue"]
+
+    API --> DB[("PostgreSQL<br/>attendance + audit data")]
+    API --> Redis[("Redis<br/>TOTP replay protection<br/>scanner-auth cache")]
+    API --> Wallet["Apple PassKit /<br/>Google Wallet services"]
 ```
 
 | Component | Stack |
-|-----------|-------|
-| **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0 async, Alembic, PostgreSQL 16 |
-| **Admin Dashboard** | React 18, Vite, TypeScript, Tailwind CSS |
-| **Member PWA** | React 18, Vite, TypeScript, Tailwind CSS, Capacitor.js |
-| **Scanner Kiosk** | Python, PyQt6, pyscard (NFC), OpenCV + pyzbar (QR), PyInstaller |
-| **Shared** | Shared React contexts (auth, toasts) and design tokens |
-| **Cache / Rate Limit** | Redis |
-| **Hosting** | Railway.app |
+| --- | --- |
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2 async, Alembic, PostgreSQL |
+| Admin dashboard | React 18, Vite, TypeScript, Tailwind CSS |
+| Member app | React 18, Vite, TypeScript, Tailwind CSS, Capacitor |
+| Scanner kiosk | Python, PyQt6, pyscard, OpenCV/pyzbar, PyInstaller |
+| Ephemeral state | Redis for QR replay protection and scanner-auth caching |
 
-## Features
+## Implemented features
 
-- **NFC + QR check-in/out** — Wallet passes with HMAC-signed NFC payloads and TOTP-rotating QR codes (30s window, replay prevention via Redis)
-- **Apple Wallet & Google Wallet** — PKCS#7-signed .pkpass generation; Google Wallet REST API with JWT save links
-- **Geofencing** — Server-validated polygon boundary with configurable buffer and coordinate validation; 90-second grace period before auto-checkout; admins notified on exit and auto-checkout; web geolocation fallback for browser testing
-- **In-app notifications** — Message center for students and admins; session approval/denial results, geofence events, auto-checkouts, and location permission alerts; unread badge on nav
-- **Hour caps** — Daily, weekly, and season caps with 80% and 100% threshold warnings via push notifications
-- **Offline scanner mode** — AES-256-GCM encrypted local cache (random per-scanner salt), SQLite event queue with max size cap, automatic sync on reconnect
-- **Self-reported checkouts** — Members submit missed checkouts through the PWA; flagged for admin approval or denial with optional reason
-- **Auto-timeout** — Cron endpoint closes sessions open >12 hours, flagged for review
-- **Season rollover** — Admin creates new season; old sessions auto-closed, new cap counters start fresh
-- **CSV/PDF export** — Reportlab-generated PDFs with styled tables and subtotals; Excel-compatible CSV with BOM
-- **Audit trail** — Immutable `admin_events` log for every state change (logins, member CRUD, pass transfers, approvals)
-- **PII encryption** — All names, emails, and phones encrypted at rest with pgcrypto `pgp_sym_encrypt`
-- **Push notifications** — APNs (wallet pass updates) and FCM (Android/PWA alerts)
-- **In-app QR code** — PWA "My Pass" page with live TOTP-rotating QR code (client-side generation, 30s countdown)
-- **Wallet pass install** — One-tap Apple/Google Wallet pass download from PWA for NFC tap check-in
-- **Anti-cheat device binding** — SHA-256 device fingerprint bound on first login; rejects logins from different devices (admin can clear via pass transfer)
-- **Bulk CSV import** — Admin uploads CSV (member_number, name, email, phone, role) to create members in bulk with auto-generated passwords and season assignment
-- **Attendance leaderboard** — Ranked member list by total hours for the active season
+- **NFC and QR attendance** — HMAC-validated NFC payloads plus TOTP QR validation with replay protection. The member PWA renders the live rotating TOTP QR.
+- **Scanner kiosk** — fullscreen PyQt6 interface with NFC/QR readers, webcam preview, scanner heartbeat, local status, and a simulator for development.
+- **Offline scanner recovery** — AES-GCM encrypted member cache, SQLite-backed event queue, cached open-session state, and ordered queue replay after reconnect.
+- **Attendance integrity** — the database now enforces at most one open session per member with a unique partial index.
+- **Geofence workflows** — configurable zones, exit/return handling, grace-period checkout flows, and admin visibility.
+- **Hours and approvals** — daily/weekly/season totals, cap-warning records, self-reported checkout, flagged-session approval/denial, and auto-timeout handling.
+- **Reporting and operations** — CSV/PDF export, season management, member import, dashboard statistics, and an audit log.
+- **Wallet services** — backend generation paths for Apple PassKit bundles and Google Wallet objects/save links.
+- **PII protection** — names, emails, and phones are stored through PostgreSQL pgcrypto helpers.
 
-## Project Structure
+### Current scope notes
 
-```
+The repository keeps claims aligned with what is wired end-to-end today. FCM/APNs helper code exists, but push delivery is not currently invoked by the core checkout/hour-cap flow. SlowAPI request limits use their default process-local storage rather than Redis-backed rate limiting. Wallet barcode payloads currently contain a placeholder code; the rotating QR experience is implemented in the PWA, not inside the Wallet pass.
+
+## Project structure
+
+```text
 Meridian/
-├── backend/                   # FastAPI backend
+├── backend/                  # FastAPI API, models, services, Alembic migrations
 │   ├── app/
-│   │   ├── api/routers/       # auth, members, passes, scanner, geofence, sessions, admin
-│   │   ├── core/              # config, database, redis, security, encryption, rate_limit
-│   │   ├── models/            # SQLAlchemy models (member, session, season, scanner, notification, etc.)
-│   │   ├── schemas/           # Pydantic request/response schemas
-│   │   ├── services/          # apple_pass, google_pass, audit, export, hour_caps, push, notifications, scan_validation
-│   │   ├── migrations/        # Alembic migrations
-│   │   └── main.py
-│   ├── Dockerfile
-│   ├── pyproject.toml
-│   └── .env.example
-├── shared/                    # Shared code & design tokens
-│   ├── auth-client/           # Shared React auth context + toast provider
-│   │   ├── useAuth.tsx        # Configurable auth provider factory
-│   │   └── ToastContext.tsx   # Toast notification context
-│   ├── design-tokens.json
-│   └── neumorphism.css
-├── scanner/                   # Windows desktop scanner kiosk
-│   ├── src/                   # PyQt6 neumorphic UI, NFC/QR readers, offline manager
-│   │   ├── api_client.py      # HTTP client with typed ApiError exceptions
-│   │   ├── exceptions.py      # ApiError for structured HTTP error handling
-│   │   ├── offline.py         # AES-GCM cache + SQLite queue (persistent conn, max size cap)
-│   │   ├── qr_reader.py       # Thread-safe QR reader with mutex-protected pause flag
-│   │   └── ...
-│   ├── config.json
-│   ├── requirements.txt
-│   └── build.spec             # PyInstaller single-exe bundling
-├── pwa/                       # Member companion app (PWA + Capacitor)
-│   └── src/                   # React pages: Home, Status (hour bars), History, Messages
-├── admin/                     # Admin dashboard SPA
-│   └── src/                   # React pages: Dashboard, Members, Approvals, Reports, Messages, Audit Log
-└── railway.toml               # Railway deployment config
+│   ├── scripts/
+│   └── tests/
+├── admin/                    # React admin dashboard
+├── pwa/                      # Member PWA + Capacitor shells
+├── scanner/                  # PyQt6 kiosk and offline queue/cache
+├── shared/                   # Shared React auth/toast code and design tokens
+├── docs/screenshots/         # Portfolio/readme screenshots
+└── .github/workflows/        # CI
 ```
 
-## API Endpoints
+## Scanner offline flow
 
-| Route | Auth | Description |
-|-------|------|-------------|
-| `POST /auth/login` | Public | Email + password login |
-| `POST /auth/refresh` | Cookie | Rotate tokens |
-| `POST /auth/logout` | — | Clear refresh cookie |
-| `POST /auth/register` | Admin | Create member + TOTP secret + pass serial |
-| `GET /members` | Admin | Paginated member list (decrypted PII) |
-| `GET /members/{id}` | Admin/Self | Member detail |
-| `PATCH /members/{id}` | Admin | Update member |
-| `DELETE /members/{id}` | Admin | Soft delete |
-| `POST /members/{id}/transfer-pass` | Admin | Clear device binding |
-| `GET /members/{id}/hours` | Admin/Self | Daily/weekly/season hour totals |
-| `GET /members/{id}/sessions` | Admin/Self | Paginated session history |
-| `GET /members/{id}/qr-code` | Admin/Self | TOTP secret + serial for QR display |
-| `GET /members/leaderboard` | Member | Top 50 members by hours this season |
+1. While online, the scanner downloads an encrypted snapshot of active members and whether each member currently has an open session.
+2. On startup, the kiosk loads that cache and restores its cache version/open-session state.
+3. If a transport failure occurs during a scan, the kiosk uses cached session state to decide whether the event is a check-in or checkout.
+4. Offline events are written to SQLite and replayed in order through `/scanner/flush-queue` after connectivity returns.
+5. Unknown members are rejected offline rather than being queued without a cached membership record.
+
+## Selected API routes
+
+| Route | Auth | Purpose |
+| --- | --- | --- |
+| `POST /auth/login` | Public | Member/admin login |
 | `POST /scanner/checkin` | Scanner | NFC/QR check-in |
-| `POST /scanner/checkout` | Scanner | NFC/QR checkout + hour cap eval |
-| `GET /scanner/cache` | Scanner | Signed member cache snapshot |
-| `POST /scanner/heartbeat` | Scanner | Connectivity + cache staleness check |
-| `POST /scanner/flush-queue` | Scanner | Sync offline events |
-| `POST /geofence/exit` | Member | Report leaving shop boundary |
-| `POST /geofence/return` | Member | Cancel pending geofence checkout |
-| `POST /geofence/checkout` | Member | Close session after grace period |
-| `GET /geofence/config` | Member | Shop polygon + grace period |
+| `POST /scanner/checkout` | Scanner | NFC/QR checkout |
+| `GET /scanner/cache` | Scanner | Offline member/open-session snapshot |
+| `POST /scanner/heartbeat` | Scanner | Connectivity + cache-version check |
+| `POST /scanner/flush-queue` | Scanner | Replay offline events |
+| `GET /admin/dashboard` | Admin/Mentor | Attendance overview |
 | `GET /sessions` | Admin | Filterable session list |
-| `PATCH /sessions/{id}/approve` | Admin | Approve flagged session |
-| `PATCH /sessions/{id}/deny` | Admin | Deny flagged session (optional reason) |
-| `PATCH /sessions/{id}/self-report` | Member | Submit self-reported checkout |
-| `POST /sessions/auto-timeout` | Cron | Close stale sessions |
-| `GET /notifications` | Member | Paginated notification inbox |
-| `GET /notifications/unread-count` | Member | Unread badge count |
-| `PATCH /notifications/{id}/read` | Member | Mark notification as read |
-| `POST /notifications/mark-all-read` | Member | Mark all as read |
-| `POST /geofence/location-denied` | Member | Report location permission denial |
-| `GET /admin/dashboard` | Admin/Mentor | Live stats + who's here |
-| `GET/POST /admin/seasons` | Admin | Season CRUD + rollover |
-| `GET /admin/export` | Admin/Mentor | CSV or PDF download |
-| `GET /admin/audit-log` | Admin | Paginated audit trail |
-| `POST /admin/import-members` | Admin | Bulk CSV member import |
-| `POST/DELETE /passes/register/...` | Apple | PassKit device registration |
-| `GET /passes/latest/...` | Apple | Updated .pkpass fetch |
-| `GET /passes/download/{id}` | Member | Download pass (.pkpass or Google Wallet link) |
+| `PATCH /sessions/{id}/approve` | Admin | Approve a flagged session |
+| `PATCH /sessions/{id}/deny` | Admin | Deny a flagged session |
+| `GET /admin/export` | Admin/Mentor | CSV/PDF export |
+| `GET /geofence/config` | Member | Scanner/site geofence configuration |
 
-## Getting Started
-
-### Prerequisites
-
-- Python 3.12+
-- Node.js 18+
-- PostgreSQL 16 with `pgcrypto` extension
-- Redis 7+
+## Getting started
 
 ### Backend
 
 ```bash
 cd backend
-cp .env.example .env           # Fill in values
-pip install -e .
+cp .env.example .env
+# Fill in required secrets and connection strings.
+pip install -e ".[dev]"
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-### Admin Dashboard
+### Admin dashboard
 
 ```bash
 cd admin
 npm install
 echo "VITE_API_URL=http://localhost:8000" > .env
-npm run dev                    # http://localhost:5173/admin
+npm run dev
 ```
 
-### PWA & Native Apps
+### Member PWA
 
-The companion app is built as a PWA but uses Capacitor to wrap natively into iOS and Android for true background geofencing tracking.
-
-**Web Development:**
 ```bash
 cd pwa
 npm install
 echo "VITE_API_URL=http://localhost:8000" > .env
-npm run dev                    # http://localhost:5174
+npm run dev
 ```
-
-**Native Generation & Building:**
-Since native background plugins require OS-level permissions, you can build and open the iOS/Android projects using Capacitor:
-```bash
-cd pwa
-npm run build                  # Compile web assets into dist/
-npm run sync                   # Sync assets and plugins to native shells
-npx cap open ios               # Opens Xcode, where you can build & deploy
-npx cap open android           # Opens Android Studio
-```
-*(Note: Be sure your target device has "Allow All The Time" location permissions enabled when testing geofence auto-checkout natively).*
 
 ### Scanner
 
 ```bash
 cd scanner
 pip install -r requirements.txt
-# Set api_key in config.json (never commit real keys!)
+# Set api_key in config.json locally; no scanner key is committed.
 python -m src.app
-# Or build exe: pyinstaller build.spec
 ```
 
-## Deployment (Railway)
+For development seed data, `backend/scripts/seed_dev.py` generates a random scanner API key unless `DEV_SCANNER_API_KEY` is supplied in the environment. Copy the generated value into your local scanner configuration.
 
-1. Connect the GitHub repo to Railway
-2. Railway auto-detects `backend/Dockerfile`
-3. Add a PostgreSQL and Redis service
-4. Set all env vars from `.env.example` in the Railway dashboard
-5. Deploy — health check at `/health`
+## Tests and CI
 
-For the frontend SPAs, build and serve as static files or deploy separately (Vercel, Netlify, etc.).
+Backend unit tests cover scan validation and checkout state transitions:
 
-## Security
+```bash
+cd backend
+pytest -q
+```
 
-- All PII (names, emails, phones) encrypted at rest with `pgp_sym_encrypt`
-- UUIDs for all primary keys (no sequential IDs)
-- TOTP QR codes rotate every 30 seconds with replay prevention
-- NFC payloads signed with HMAC-SHA256 and validated with proper URL parsing and strict format checks
-- JWT access tokens (15 min) + httpOnly refresh cookies (7 days)
-- Scanner API key authentication cached in Redis (SHA-256 hashed keys, 1-hour TTL — raw keys never stored)
-- Offline cache encrypted with AES-256-GCM (key derived from scanner API key via PBKDF2, random per-scanner salt)
-- Rate limiting on auth endpoints (10/min)
-- `DEBUG_SKIP_SCAN_VALIDATION` blocked in production by a model validator (rejects non-localhost DATABASE_URL)
-- Geofence coordinates validated server-side (lat/lng range checks, minimum polygon points)
-- Session state machine enforces open-to-closed transitions (prevents double-close)
-- Concurrent token refresh requests coalesced to prevent race conditions
-- Device fingerprint binding on student login prevents proxy check-ins from different devices
-- API error responses parsed as structured JSON (server internals not leaked to clients)
-- Scanner kiosk uses typed `ApiError` exceptions with status codes (no string-matching on error messages)
-- QR reader thread uses mutex-protected pause flag to prevent race conditions
-- Offline event queue capped at 10,000 entries to prevent unbounded disk growth
+GitHub Actions runs the backend pytest suite for pull requests and pushes to `main`.
+
+## Security notes
+
+- Sensitive scanner cache files, salts, queue databases, and environment files are gitignored.
+- Scanner API keys are bcrypt-hashed in the database; the committed scanner config contains no key.
+- TOTP replay prevention uses Redis with a short TTL.
+- NFC payloads are HMAC-SHA256 validated.
+- JWT access/refresh tokens and role checks protect member/admin routes.
+- A unique PostgreSQL partial index prevents concurrent creation of multiple open sessions for one member.
+- Offline cache data is encrypted with AES-GCM using a PBKDF2-derived key.
 
 ## License
 
-Private — all rights reserved.
+MIT — see [LICENSE](LICENSE).
